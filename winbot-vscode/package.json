@@ -1,0 +1,925 @@
+{
+  "name": "winbot-vscode",
+  "displayName": "WinBot Tools",
+  "description": "WinBot UI Automation tools exposed as VS Code Language Model Tools",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languageModelTools": [
+      {
+        "name": "winbot_ui_scan",
+        "displayName": "UI Scan",
+        "modelDescription": "Scan the UI Automation tree of the currently focused window.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_ui_scan"
+      },
+      {
+        "name": "winbot_screenshot",
+        "displayName": "Screenshot",
+        "modelDescription": "Capture a full-resolution screenshot of the entire desktop.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_screenshot"
+      },
+      {
+        "name": "winbot_screenshot_window",
+        "displayName": "Screenshot Window",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title"
+          ]
+        },
+        "modelDescription": "Capture a screenshot of a specific window identified by a title substring.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_screenshot_window"
+      },
+      {
+        "name": "winbot_ui_scan_window",
+        "displayName": "UI Scan Window",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title"
+          ]
+        },
+        "modelDescription": "Scan the UI Automation tree of a specific window (searching by title substring).",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_ui_scan_window"
+      },
+      {
+        "name": "winbot_screenshot_element",
+        "displayName": "Screenshot Element",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "left": {
+              "type": "number"
+            },
+            "top": {
+              "type": "number"
+            },
+            "right": {
+              "type": "number"
+            },
+            "bottom": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "left",
+            "top",
+            "right",
+            "bottom"
+          ]
+        },
+        "modelDescription": "Capture a high-detail screenshot of a specific UI element using its screen coordinates.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_screenshot_element"
+      },
+      {
+        "name": "winbot_get_window_list",
+        "displayName": "Window List",
+        "modelDescription": "List all visible windows with their titles and handles.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_get_window_list"
+      },
+      {
+        "name": "winbot_get_cursor_position",
+        "displayName": "Cursor Position",
+        "modelDescription": "Get the current mouse cursor position.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_get_cursor_position"
+      },
+      {
+        "name": "winbot_click",
+        "displayName": "Click",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "button": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ]
+        },
+        "modelDescription": "Simulate a mouse click at specific screen coordinates.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_click"
+      },
+      {
+        "name": "winbot_double_click",
+        "displayName": "Double Click",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ]
+        },
+        "modelDescription": "Perform a rapid double-click at the specified screen coordinates.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_double_click"
+      },
+      {
+        "name": "winbot_drag",
+        "displayName": "Drag",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "x1": {
+              "type": "number"
+            },
+            "y1": {
+              "type": "number"
+            },
+            "x2": {
+              "type": "number"
+            },
+            "y2": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x1",
+            "y1",
+            "x2",
+            "y2"
+          ]
+        },
+        "modelDescription": "Press and hold the left mouse button at (x1, y1), move to (x2, y2), and release.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_drag"
+      },
+      {
+        "name": "winbot_scroll",
+        "displayName": "Scroll",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "delta": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "delta"
+          ]
+        },
+        "modelDescription": "Scroll the mouse wheel at a specific location.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_scroll"
+      },
+      {
+        "name": "winbot_type_text",
+        "displayName": "Type Text",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ]
+        },
+        "modelDescription": "Simulate keyboard typing.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_type_text"
+      },
+      {
+        "name": "winbot_key",
+        "displayName": "Key",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "combo": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "combo"
+          ]
+        },
+        "modelDescription": "Press a specific key or key combination.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_key"
+      },
+      {
+        "name": "winbot_focus_window",
+        "displayName": "Focus Window",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title"
+          ]
+        },
+        "modelDescription": "Bring a window to the foreground and give it input focus by searching for a title substring.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_focus_window"
+      },
+      {
+        "name": "winbot_close_window",
+        "displayName": "Close Window",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title"
+          ]
+        },
+        "modelDescription": "Request a window to close by searching for its title.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_close_window"
+      },
+      {
+        "name": "winbot_run_command",
+        "displayName": "Run Command",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "cmd": {
+              "type": "string"
+            },
+            "timeout_ms": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "cmd"
+          ]
+        },
+        "modelDescription": "Execute a command in PowerShell or CMD and capture the output.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_run_command"
+      },
+      {
+        "name": "winbot_read_file",
+        "displayName": "Read File",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "modelDescription": "Read the full text content of a file.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_read_file"
+      },
+      {
+        "name": "winbot_write_file",
+        "displayName": "Write File",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        },
+        "modelDescription": "Create or overwrite a file with the provided text content.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_write_file"
+      },
+      {
+        "name": "winbot_get_clipboard",
+        "displayName": "Get Clipboard",
+        "modelDescription": "Get the current text currently stored in the Windows system clipboard.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_get_clipboard"
+      },
+      {
+        "name": "winbot_set_clipboard",
+        "displayName": "Set Clipboard",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ]
+        },
+        "modelDescription": "Copy a new text string to the Windows system clipboard.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_set_clipboard"
+      },
+      {
+        "name": "winbot_append_file",
+        "displayName": "Append File",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        },
+        "modelDescription": "Add text to the end of an existing file without overwriting it.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_append_file"
+      },
+      {
+        "name": "winbot_list_directory",
+        "displayName": "List Directory",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "modelDescription": "Enumerate all files and sub-folders within a specific directory.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_list_directory"
+      },
+      {
+        "name": "winbot_delete_file",
+        "displayName": "Delete File",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "modelDescription": "Permanently delete a file from the filesystem.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_delete_file"
+      },
+      {
+        "name": "winbot_copy_file",
+        "displayName": "Copy File",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "src": {
+              "type": "string"
+            },
+            "dst": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "src",
+            "dst"
+          ]
+        },
+        "modelDescription": "Copy a file from a source path to a destination path.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_copy_file"
+      },
+      {
+        "name": "winbot_get_processes",
+        "displayName": "Get Processes",
+        "modelDescription": "List all currently running system processes.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_get_processes"
+      },
+      {
+        "name": "winbot_kill_process",
+        "displayName": "Kill Process",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name_or_pid": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name_or_pid"
+          ]
+        },
+        "modelDescription": "Terminate a running process.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_kill_process"
+      },
+      {
+        "name": "winbot_get_system_info",
+        "displayName": "Get System Info",
+        "modelDescription": "Retrieve hardware and OS status.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_get_system_info"
+      },
+      {
+        "name": "winbot_http_get",
+        "displayName": "HTTP Get",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            },
+            "headers": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ]
+        },
+        "modelDescription": "Fetch content from a URL using a GET request.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_http_get"
+      },
+      {
+        "name": "winbot_search_web",
+        "displayName": "Search Web",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        },
+        "modelDescription": "Perform a web search using DuckDuckGo.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_search_web"
+      },
+      {
+        "name": "winbot_browser_navigate",
+        "displayName": "Browser Navigate",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ]
+        },
+        "modelDescription": "Direct the automation browser to a specific web address.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_browser_navigate"
+      },
+      {
+        "name": "winbot_browser_click",
+        "displayName": "Browser Click",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "selector"
+          ]
+        },
+        "modelDescription": "Click on a specific element within the web page using a CSS selector.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_browser_click"
+      },
+      {
+        "name": "winbot_browser_type",
+        "displayName": "Browser Type",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "selector",
+            "text"
+          ]
+        },
+        "modelDescription": "Input text into a form field or other editable element in the browser.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_browser_type"
+      },
+      {
+        "name": "winbot_browser_get_dom",
+        "displayName": "Browser Get DOM",
+        "modelDescription": "Obtain a simplified, text-based tree representing the visible DOM structure of the current web page.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_browser_get_dom"
+      },
+      {
+        "name": "winbot_browser_eval",
+        "displayName": "Browser Eval",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "js": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "js"
+          ]
+        },
+        "modelDescription": "Run arbitrary JavaScript code within the context of the current web page.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_browser_eval"
+      },
+      {
+        "name": "winbot_remember",
+        "displayName": "Remember",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "value"
+          ]
+        },
+        "modelDescription": "Persist a key-value pair to WinBot's long-term memory.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_remember"
+      },
+      {
+        "name": "winbot_recall",
+        "displayName": "Recall",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ]
+        },
+        "modelDescription": "Fetch a specific piece of information from long-term memory.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_recall"
+      },
+      {
+        "name": "winbot_recall_all",
+        "displayName": "Recall All",
+        "modelDescription": "List every entry currently stored in WinBot's persistent memory.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_recall_all"
+      },
+      {
+        "name": "winbot_forget",
+        "displayName": "Forget",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ]
+        },
+        "modelDescription": "Remove a specific entry from long-term memory.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_forget"
+      },
+      {
+        "name": "winbot_lua_exec",
+        "displayName": "Lua Exec",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ]
+        },
+        "modelDescription": "Execute an inline Lua 5.4 script. The 'winbot' table is available globally for automation (navigate, click, evalJs, log, sleep, typeText, pressKey, readPage).",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_lua_exec"
+      },
+      {
+        "name": "winbot_lua_run",
+        "displayName": "Lua Run",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "modelDescription": "Execute a Lua script file from disk.",
+        "tags": [
+          "winbot",
+          "github-copilot",
+          "automation"
+        ],
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "winbot_lua_run"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "copy:exe": "node -e \"const fs=require('fs'); if(!fs.existsSync('bin')) fs.mkdirSync('bin'); fs.copyFileSync('../build/bin/Release/WinBot.exe', 'bin/WinBot.exe');\"",
+    "build:ts": "node esbuild.js",
+    "build": "npm run copy:exe && npm run build:ts",
+    "package": "vsce package",
+    "compile": "tsc -noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^2.26.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.0.0"
+  },
+  "publisher": "smrutled",
+  "author": "smrutled",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/smrutled/WinBot"
+  }
+}

@@ -1,0 +1,12 @@
+CompileFlags:
+  CompilationDatabase: build
+  Add:
+    - -std=c++23
+    - -D_HAS_CXX17=1
+    - -D_HAS_CXX20=1
+    - -D_HAS_CXX23=1
+    - /std:c++latest
+    - /Zc:__cplusplus
+    - /EHsc
+    - -fms-compatibility
+    - -fms-extensions

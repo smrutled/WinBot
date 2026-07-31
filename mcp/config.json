@@ -1,0 +1,44 @@
+{
+  "action_delay_ms": 200,
+  "browser_cdp_port": 9222,
+  "browser_exe": "",
+  "kill_hotkey": "Ctrl+Alt+X",
+  "mcp_servers": [],
+  "permission": {
+    "allowed_paths": [
+      "%USERPROFILE%",
+      "%APPDATA%",
+      "%TEMP%"
+    ],
+    "blocked_paths": [
+      "C:\\Windows\\System32",
+      "C:\\Windows\\SysWOW64"
+    ],
+    "blocked_processes": [
+      "winlogon.exe",
+      "csrss.exe",
+      "smss.exe",
+      "lsass.exe"
+    ],
+    "confirm_file_delete": true,
+    "confirm_process_kill": true,
+    "confirm_shell_commands": true,
+    "dangerous_cmd_patterns": [
+      "rm -rf",
+      "format ",
+      "del /f /s /q",
+      "reg delete",
+      "Remove-Item",
+      "Stop-Computer",
+      "Restart-Computer",
+      "Format-Volume",
+      "Clear-Disk",
+      "Invoke-Expression",
+      "iex "
+    ]
+  },
+  "scheduled_tasks": [],
+  "voice_input": false,
+  "voice_output": false,
+  "wake_word": "hey winbot"
+}

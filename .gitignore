@@ -1,0 +1,54 @@
+# Build directories
+build/
+out/
+bin/
+obj/
+
+# Visual Studio / IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.db
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+.cache/
+# Dependencies
+third_party/stb_image.h
+third_party/stb_image_write.h
+_deps/
+
+# WinBot Data
+data/
+*.log
+
+# LLM Models
+*.gguf
+*.bin
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node.js
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+.env
