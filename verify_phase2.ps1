@@ -3,7 +3,11 @@ $testJson = @'
 '@
 
 Write-Host "Running WinBot Phase 2 Verification..."
-$output = $testJson | .\build\bin\Release\WinBot.exe --mcp
+$exePath = ".\build\bin\Release\WinBot.exe"
+if (-not (Test-Path $exePath)) {
+    $exePath = ".\build\bin\WinBot.exe"
+}
+$output = $testJson | & $exePath --mcp
 Write-Host "Output from WinBot:"
 Write-Host $output
 

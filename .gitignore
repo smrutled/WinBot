@@ -6,7 +6,8 @@ obj/
 
 # Visual Studio / IDE
 .vs/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 *.user
 *.suo
 *.db
