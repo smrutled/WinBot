@@ -26,8 +26,20 @@ std::string UIADebugger::stripQuotes(std::string s) {
   s = s.substr(start, end - start + 1);
 
   if (s.size() >= 2 && s.front() == '"' && s.back() == '"')
-    return s.substr(1, s.size() - 2);
-  return s;
+    s = s.substr(1, s.size() - 2);
+
+  // Unescape \" -> "
+  std::string unescaped;
+  unescaped.reserve(s.size());
+  for (size_t i = 0; i < s.size(); ++i) {
+    if (s[i] == '\\' && i + 1 < s.size() && s[i + 1] == '"') {
+      unescaped += '"';
+      ++i;
+    } else {
+      unescaped += s[i];
+    }
+  }
+  return unescaped;
 }
 
 UIADebugger::CommandArgs
@@ -42,7 +54,13 @@ UIADebugger::parseCommandArgs(std::string_view argStr) {
   {
     std::string cur;
     bool inQuote = false;
-    for (char c : inner) {
+    for (size_t i = 0; i < inner.size(); ++i) {
+      char c = inner[i];
+      if (c == '\\' && i + 1 < inner.size() && inner[i + 1] == '"') {
+        cur += "\\\"";
+        ++i;
+        continue;
+      }
       if (c == '"')
         inQuote = !inQuote;
       if (c == ',' && !inQuote) {
@@ -275,7 +293,14 @@ bool UIADebugger::execSegment(std::string_view seg) {
     std::string cur;
     bool inQuote = false;
     int parenDepth = 0;
-    for (char c : cmd) {
+    bool hadDanglingDot = false;
+    for (size_t i = 0; i < cmd.size(); ++i) {
+      char c = cmd[i];
+      if (c == '\\' && i + 1 < cmd.size() && cmd[i + 1] == '"') {
+        cur += "\\\"";
+        ++i;
+        continue;
+      }
       if (c == '"')
         inQuote = !inQuote;
       if (!inQuote) {
@@ -284,15 +309,31 @@ bool UIADebugger::execSegment(std::string_view seg) {
         else if (c == ')')
           parenDepth--;
       }
-      if (c == '.' && !inQuote && parenDepth == 0 && !cur.empty()) {
-        tokens.push_back(cur);
+      if (c == '.' && !inQuote && parenDepth == 0) {
+        auto trimmed = cur;
+        auto sPos = trimmed.find_first_not_of(" \t");
+        if (sPos == std::string::npos) {
+          hadDanglingDot = true;
+          break;
+        }
+        tokens.push_back(trimmed.substr(sPos, trimmed.find_last_not_of(" \t") - sPos + 1));
         cur.clear();
       } else {
         cur += c;
       }
     }
-    if (!cur.empty())
-      tokens.push_back(cur);
+    if (hadDanglingDot) {
+      WINBOT_ERROR("Syntax error: invalid or dangling dot in '{}'", cmd);
+      return false;
+    }
+    auto trimmed = cur;
+    auto sPos = trimmed.find_first_not_of(" \t");
+    if (sPos != std::string::npos) {
+      tokens.push_back(trimmed.substr(sPos, trimmed.find_last_not_of(" \t") - sPos + 1));
+    } else if (!tokens.empty() && cmd.find_last_not_of(" \t") != std::string::npos && cmd[cmd.find_last_not_of(" \t")] == '.') {
+      WINBOT_ERROR("Syntax error: trailing dot in '{}'", cmd);
+      return false;
+    }
   }
   if (tokens.empty())
     return true;
@@ -576,6 +617,22 @@ bool UIADebugger::execSegment(std::string_view seg) {
   return true;
 }
 
+// ── execute
+// ─────────────────────────────────────────────────────────────────
+bool UIADebugger::execute(std::string_view line) {
+  if (line.empty())
+    return true;
+  bool keepGoing = true;
+  std::string lineStr(line);
+  std::stringstream ss(lineStr);
+  std::string seg;
+  while (std::getline(ss, seg, ';') && keepGoing &&
+         !KillSwitch::isTriggered()) {
+    keepGoing = execSegment(seg);
+  }
+  return keepGoing;
+}
+
 // ── REPL loop
 // ─────────────────────────────────────────────────────────────────
 void UIADebugger::run() {
@@ -596,14 +653,7 @@ void UIADebugger::run() {
     if (line.empty())
       continue;
 
-    bool keepGoing = true;
-    std::stringstream ss(line);
-    std::string seg;
-    while (std::getline(ss, seg, ';') && keepGoing &&
-           !KillSwitch::isTriggered()) {
-      keepGoing = execSegment(seg);
-    }
-    if (!keepGoing)
+    if (!execute(line))
       break;
   }
 }

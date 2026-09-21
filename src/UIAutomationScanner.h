@@ -10,6 +10,8 @@ class UIAutomationScanner;
 
 // ── UIElement
 // ─────────────────────────────────────────────────────────────────
+inline constexpr DWORD UIA_EXCLUDE_NONE = 0xFFFFFFFF;
+
 struct UIElement {
   std::string name;         // Accessible name (button label, field text, etc.)
   std::string value;        // Inner text or value (for Text/Edit controls)
@@ -34,14 +36,16 @@ struct UIElement {
   // Search the tree starting from THIS element (inclusive).
   [[nodiscard]] const UIElement *
   findInSubtree(std::string_view nameOrId,
-                std::string_view controlTypeFilter = "") const;
+                std::string_view controlTypeFilter = "",
+                DWORD excludedPid = 0) const;
 
   // Search for the BEST matching element in the subtree (inclusive).
   // Prioritizes: Exact Name/ID match + Window type > Exact Match > Substring
   // Window > Substring match.
   [[nodiscard]] const UIElement *
   findBestMatch(std::string_view nameOrId,
-                std::string_view controlTypeFilter = "") const;
+                std::string_view controlTypeFilter = "",
+                DWORD excludedPid = 0) const;
 
   // Search the tree by UIA RuntimeId.
   [[nodiscard]] const UIElement *
@@ -50,7 +54,8 @@ struct UIElement {
   // Search the tree starting from this element's CHILDREN (exclusive).
   [[nodiscard]] const UIElement *
   findDescendant(std::string_view nameOrId,
-                 std::string_view controlTypeFilter = "") const;
+                 std::string_view controlTypeFilter = "",
+                 DWORD excludedPid = 0) const;
 
   // Search the tree for the parent of the element with the given RuntimeId.
   [[nodiscard]] const UIElement *
@@ -118,8 +123,10 @@ public:
 private:
   bool m_humanMovement{false};
   // COM interface pointers stored as void* to avoid header pollution
-  void *m_automation{nullptr}; // IUIAutomation*
-  void *m_treeWalker{nullptr}; // IUIAutomationTreeWalker*
+  void *m_automation{nullptr};    // IUIAutomation*
+  void *m_treeWalker{nullptr};    // IUIAutomationTreeWalker*
+  void *m_trueCondition{nullptr}; // IUIAutomationCondition*
+  void *m_cacheRequest{nullptr};  // IUIAutomationCacheRequest*
 
   // Recursively walk the UIA tree from a given element
   [[nodiscard]] UIElement walkElement(void *element, int depth = 0,

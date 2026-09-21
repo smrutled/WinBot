@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <future>
 #include <regex>
 #include <thread>
 
@@ -38,9 +39,35 @@ UIAutomationScanner::UIAutomationScanner() {
     IUIAutomationTreeWalker* walker = nullptr;
     automation->get_RawViewWalker(&walker);
     m_treeWalker = walker;
+
+    IUIAutomationCondition* condition = nullptr;
+    if (SUCCEEDED(automation->CreateTrueCondition(&condition))) {
+        m_trueCondition = condition;
+    }
+
+    IUIAutomationCacheRequest* cacheReq = nullptr;
+    if (SUCCEEDED(automation->CreateCacheRequest(&cacheReq)) && cacheReq) {
+        cacheReq->AddProperty(UIA_NativeWindowHandlePropertyId);
+        cacheReq->AddProperty(UIA_ProcessIdPropertyId);
+        cacheReq->AddProperty(UIA_NamePropertyId);
+        cacheReq->AddProperty(UIA_ControlTypePropertyId);
+        cacheReq->AddProperty(UIA_AutomationIdPropertyId);
+        cacheReq->AddProperty(UIA_BoundingRectanglePropertyId);
+        cacheReq->AddProperty(UIA_IsEnabledPropertyId);
+        cacheReq->AddProperty(UIA_IsKeyboardFocusablePropertyId);
+        cacheReq->AddProperty(UIA_HasKeyboardFocusPropertyId);
+        cacheReq->AddProperty(UIA_IsInvokePatternAvailablePropertyId);
+        cacheReq->AddProperty(UIA_IsTextPatternAvailablePropertyId);
+        cacheReq->AddProperty(UIA_IsValuePatternAvailablePropertyId);
+        cacheReq->put_TreeScope(TreeScope_Element);
+        cacheReq->put_AutomationElementMode(AutomationElementMode_Full);
+        m_cacheRequest = cacheReq;
+    }
 }
 
 UIAutomationScanner::~UIAutomationScanner() {
+    SAFE_RELEASE(reinterpret_cast<IUIAutomationCacheRequest*&>(m_cacheRequest));
+    SAFE_RELEASE(reinterpret_cast<IUIAutomationCondition*&>(m_trueCondition));
     SAFE_RELEASE(reinterpret_cast<IUIAutomationTreeWalker*&>(m_treeWalker));
     SAFE_RELEASE(reinterpret_cast<IUIAutomation*&>(m_automation));
     ::CoUninitialize();
@@ -68,6 +95,13 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanFocusedWindow() c
         if (FAILED(hr) || !parent) break;
         if (current != focusedEl) current->Release();
         current = parent;
+    }
+
+    auto* cacheReq = reinterpret_cast<IUIAutomationCacheRequest*>(m_cacheRequest);
+    IUIAutomationElement* cachedEl = nullptr;
+    if (cacheReq && SUCCEEDED(current->BuildUpdatedCache(cacheReq, &cachedEl)) && cachedEl) {
+        if (current != focusedEl) current->Release();
+        current = cachedEl;
     }
 
     UIElement result = walkElement(current, 0, hwnd);
@@ -173,6 +207,13 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanWindowByHandle(HW
     HRESULT hr = automation->ElementFromHandle(hwnd, &el);
     if (FAILED(hr) || !el) return std::unexpected("Could not get UIA element for window handle");
 
+    auto* cacheReq = reinterpret_cast<IUIAutomationCacheRequest*>(m_cacheRequest);
+    IUIAutomationElement* cachedEl = nullptr;
+    if (cacheReq && SUCCEEDED(el->BuildUpdatedCache(cacheReq, &cachedEl)) && cachedEl) {
+        el->Release();
+        el = cachedEl;
+    }
+
     UIElement result = walkElement(el, 0, hwnd);
     el->Release();
     return result;
@@ -186,8 +227,89 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanDesktop() const {
     HRESULT hr = automation->GetRootElement(&root);
     if (FAILED(hr) || !root) return std::unexpected("Could not get desktop root element");
 
-    UIElement result = walkElement(root, 0, nullptr);
+    auto* cacheReq = reinterpret_cast<IUIAutomationCacheRequest*>(m_cacheRequest);
+    auto* condition = reinterpret_cast<IUIAutomationCondition*>(m_trueCondition);
+
+    // Build updated cache for the desktop root element itself
+    IUIAutomationElement* cachedRoot = nullptr;
+    if (cacheReq && SUCCEEDED(root->BuildUpdatedCache(cacheReq, &cachedRoot)) && cachedRoot) {
+        root->Release();
+        root = cachedRoot;
+    }
+
+    // Populate desktop root element metadata
+    UIElement result;
+    HWND desktopHwnd = nullptr;
+    UIA_HWND uiaHwnd = nullptr;
+    if (SUCCEEDED(root->get_CachedNativeWindowHandle(&uiaHwnd)) && uiaHwnd) {
+        desktopHwnd = reinterpret_cast<HWND>(uiaHwnd);
+    } else {
+        root->get_CurrentNativeWindowHandle(&uiaHwnd);
+        if (uiaHwnd) desktopHwnd = reinterpret_cast<HWND>(uiaHwnd);
+    }
+    result.ownerHwnd = desktopHwnd;
+
+    int rootPid = 0;
+    if (SUCCEEDED(root->get_CachedProcessId(&rootPid)) || SUCCEEDED(root->get_CurrentProcessId(&rootPid))) {
+        result.dwProcessId = static_cast<DWORD>(rootPid);
+    }
+
+    BSTR rootName = nullptr;
+    if ((SUCCEEDED(root->get_CachedName(&rootName)) && rootName) || (SUCCEEDED(root->get_CurrentName(&rootName)) && rootName)) {
+        result.name = wide_to_utf8(std::wstring_view{ rootName });
+        ::SysFreeString(rootName);
+    }
+    if (result.name.empty()) {
+        result.name = "Desktop";
+    }
+
+    CONTROLTYPEID rootCtypeId = 0;
+    if (SUCCEEDED(root->get_CachedControlType(&rootCtypeId)) || SUCCEEDED(root->get_CurrentControlType(&rootCtypeId))) {
+        result.controlType = controlTypeToString(rootCtypeId);
+    }
+    if (result.controlType.empty()) {
+        result.controlType = "Pane";
+    }
+
+    RECT rootRect{};
+    if (SUCCEEDED(root->get_CachedBoundingRectangle(&rootRect)) || SUCCEEDED(root->get_CurrentBoundingRectangle(&rootRect))) {
+        result.bounds = rootRect;
+    }
+
+    // Enumerate direct children of desktop root (top-level windows) using cache
+    IUIAutomationElementArray* childrenArray = nullptr;
+    if (cacheReq && condition) {
+        hr = root->FindAllBuildCache(TreeScope_Children, condition, cacheReq, &childrenArray);
+    } else if (condition) {
+        hr = root->FindAll(TreeScope_Children, condition, &childrenArray);
+    }
     root->Release();
+
+    if (FAILED(hr) || !childrenArray) {
+        return std::unexpected("Could not enumerate desktop top-level windows");
+    }
+
+    int length = 0;
+    childrenArray->get_Length(&length);
+    result.children.reserve(static_cast<size_t>(length));
+
+    const DWORD selfPid = ::GetCurrentProcessId();
+    for (int i = 0; i < length; ++i) {
+        IUIAutomationElement* child = nullptr;
+        if (SUCCEEDED(childrenArray->GetElement(i, &child)) && child) {
+            int pid = 0;
+            if ((SUCCEEDED(child->get_CachedProcessId(&pid)) || SUCCEEDED(child->get_CurrentProcessId(&pid))) &&
+                static_cast<DWORD>(pid) == selfPid) {
+                // Filter out own process per user instruction
+                child->Release();
+                continue;
+            }
+            result.children.push_back(walkElement(child, 1, desktopHwnd));
+            child->Release();
+        }
+    }
+    childrenArray->Release();
+
     return result;
 }
 
@@ -241,121 +363,189 @@ UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwn
     auto* el = reinterpret_cast<IUIAutomationElement*>(elPtr);
     UIElement result;
 
-    // Always prefer the element's own NativeWindowHandle.
-    // Falling back to the inherited ownerHwnd only if the element has none.
-    // This prevents Desktop-rooted scans from stamping the Desktop HWND on
-    // every descendant application element.
+    // 1. Native Window Handle (prefer cached, fallback to current, fallback to ownerHwnd)
     HWND currentHwnd = nullptr;
-    el->get_CurrentNativeWindowHandle((UIA_HWND*)&currentHwnd);
+    UIA_HWND uiaHwnd = nullptr;
+    if (FAILED(el->get_CachedNativeWindowHandle(&uiaHwnd)) || !uiaHwnd) {
+        el->get_CurrentNativeWindowHandle(&uiaHwnd);
+    }
+    if (uiaHwnd) currentHwnd = reinterpret_cast<HWND>(uiaHwnd);
     if (!currentHwnd) currentHwnd = ownerHwnd;
     result.ownerHwnd = currentHwnd;
 
-    // Capture Process ID
+    // 2. Process ID
     int pid = 0;
-    if (SUCCEEDED(el->get_CurrentProcessId(&pid))) {
-        result.dwProcessId = (DWORD)pid;
+    if (SUCCEEDED(el->get_CachedProcessId(&pid)) || SUCCEEDED(el->get_CurrentProcessId(&pid))) {
+        result.dwProcessId = static_cast<DWORD>(pid);
     }
 
-    // Name — use raw BSTR (no ATL dependency)
+    // 3. Name
     BSTR name = nullptr;
-    if (SUCCEEDED(el->get_CurrentName(&name)) && name) {
+    if (FAILED(el->get_CachedName(&name)) || !name) {
+        el->get_CurrentName(&name);
+    }
+    if (name) {
         result.name = wide_to_utf8(std::wstring_view{ name });
         ::SysFreeString(name);
     }
 
-    // Control type
+    // 4. Control type
     CONTROLTYPEID ctypeId = 0;
-    if (SUCCEEDED(el->get_CurrentControlType(&ctypeId))) {
+    if (SUCCEEDED(el->get_CachedControlType(&ctypeId)) || SUCCEEDED(el->get_CurrentControlType(&ctypeId))) {
         result.controlType = controlTypeToString(ctypeId);
     }
 
-    // AutomationId
+    // 5. AutomationId
     BSTR automId = nullptr;
-    if (SUCCEEDED(el->get_CurrentAutomationId(&automId)) && automId) {
+    if (FAILED(el->get_CachedAutomationId(&automId)) || !automId) {
+        el->get_CurrentAutomationId(&automId);
+    }
+    if (automId) {
         result.automationId = wide_to_utf8(std::wstring_view{ automId });
         ::SysFreeString(automId);
     }
 
-    // Capture RuntimeId
+    // 6. RuntimeId
     SAFEARRAY* saId = nullptr;
     if (SUCCEEDED(el->GetRuntimeId(&saId)) && saId) {
-        long lb, ub;
+        long lb = 0, ub = -1;
         SafeArrayGetLBound(saId, 1, &lb);
         SafeArrayGetUBound(saId, 1, &ub);
-        for (long i = lb; i <= ub; ++i) {
-            int val = 0;
-            SafeArrayGetElement(saId, &i, &val);
-            result.runtimeId.push_back(val);
+        if (ub >= lb) {
+            result.runtimeId.reserve(static_cast<size_t>(ub - lb + 1));
+            for (long i = lb; i <= ub; ++i) {
+                int val = 0;
+                SafeArrayGetElement(saId, &i, &val);
+                result.runtimeId.push_back(val);
+            }
         }
         SafeArrayDestroy(saId);
     }
 
-    // Bounding rectangle
+    // 7. Bounding rectangle
     RECT rect{};
-    if (SUCCEEDED(el->get_CurrentBoundingRectangle(&rect))) {
+    if (SUCCEEDED(el->get_CachedBoundingRectangle(&rect))) {
+        result.bounds = rect;
+    } else if (SUCCEEDED(el->get_CurrentBoundingRectangle(&rect))) {
         result.bounds = rect;
     }
 
-    // Properties
+    // 8. Boolean Properties
     BOOL enabled = FALSE;
-    if (SUCCEEDED(el->get_CurrentIsEnabled(&enabled))) result.isEnabled = (enabled != 0);
+    if (SUCCEEDED(el->get_CachedIsEnabled(&enabled)) || SUCCEEDED(el->get_CurrentIsEnabled(&enabled))) {
+        result.isEnabled = (enabled != 0);
+    }
+
     BOOL focusable = FALSE;
-    if (SUCCEEDED(el->get_CurrentIsKeyboardFocusable(&focusable))) result.isFocusable = (focusable != 0);
+    if (SUCCEEDED(el->get_CachedIsKeyboardFocusable(&focusable)) || SUCCEEDED(el->get_CurrentIsKeyboardFocusable(&focusable))) {
+        result.isFocusable = (focusable != 0);
+    }
+
     BOOL focused = FALSE;
-    if (SUCCEEDED(el->get_CurrentHasKeyboardFocus(&focused))) result.isFocused = (focused != 0);
-
-    // Check for Invoke Pattern support
-    IUnknown* pUnk = nullptr;
-    if (SUCCEEDED(el->GetCurrentPattern(UIA_InvokePatternId, &pUnk)) && pUnk) {
-        result.supportsInvoke = true;
-        pUnk->Release();
+    if (SUCCEEDED(el->get_CachedHasKeyboardFocus(&focused)) || SUCCEEDED(el->get_CurrentHasKeyboardFocus(&focused))) {
+        result.isFocused = (focused != 0);
     }
 
-    // Extract accessible text
-    IUIAutomationTextPattern* textPattern = nullptr;
-    if (SUCCEEDED(el->GetCurrentPatternAs(UIA_TextPatternId, IID_PPV_ARGS(&textPattern))) && textPattern) {
-        IUIAutomationTextRange* range = nullptr;
-        if (SUCCEEDED(textPattern->get_DocumentRange(&range)) && range) {
-            BSTR textStr = nullptr;
-            if (SUCCEEDED(range->GetText(1024, &textStr)) && textStr) {
-                result.value = wide_to_utf8(std::wstring_view{textStr});
-                // Clean up whitespace
-                std::erase_if(result.value, [](char c){ return c == '\r'; });
-                while (!result.value.empty() && std::isspace(static_cast<unsigned char>(result.value.back()))) {
-                    result.value.pop_back();
+    // 9. Check for Invoke Pattern (only for invokable control types)
+    bool canInvoke = (ctypeId == UIA_ButtonControlTypeId ||
+                      ctypeId == UIA_CheckBoxControlTypeId ||
+                      ctypeId == UIA_RadioButtonControlTypeId ||
+                      ctypeId == UIA_MenuItemControlTypeId ||
+                      ctypeId == UIA_HyperlinkControlTypeId ||
+                      ctypeId == UIA_SplitButtonControlTypeId ||
+                      ctypeId == UIA_TabItemControlTypeId);
+    if (canInvoke) {
+        VARIANT varInv;
+        VariantInit(&varInv);
+        if (SUCCEEDED(el->GetCachedPropertyValue(UIA_IsInvokePatternAvailablePropertyId, &varInv)) &&
+            varInv.vt == VT_BOOL) {
+            result.supportsInvoke = (varInv.boolVal == VARIANT_TRUE);
+        } else {
+            IUnknown* pUnk = nullptr;
+            if (SUCCEEDED(el->GetCurrentPattern(UIA_InvokePatternId, &pUnk)) && pUnk) {
+                result.supportsInvoke = true;
+                pUnk->Release();
+            }
+        }
+        VariantClear(&varInv);
+    }
+
+    // 10. Extract accessible text (only for Document or Edit control types)
+    if (ctypeId == UIA_DocumentControlTypeId || ctypeId == UIA_EditControlTypeId) {
+        VARIANT varText;
+        VariantInit(&varText);
+        bool hasTextPattern = true;
+        if (SUCCEEDED(el->GetCachedPropertyValue(UIA_IsTextPatternAvailablePropertyId, &varText)) &&
+            varText.vt == VT_BOOL) {
+            hasTextPattern = (varText.boolVal == VARIANT_TRUE);
+        }
+        VariantClear(&varText);
+
+        if (hasTextPattern) {
+            IUIAutomationTextPattern* textPattern = nullptr;
+            if (SUCCEEDED(el->GetCurrentPatternAs(UIA_TextPatternId, IID_PPV_ARGS(&textPattern))) && textPattern) {
+                IUIAutomationTextRange* range = nullptr;
+                if (SUCCEEDED(textPattern->get_DocumentRange(&range)) && range) {
+                    BSTR textStr = nullptr;
+                    if (SUCCEEDED(range->GetText(1024, &textStr)) && textStr) {
+                        result.value = wide_to_utf8(std::wstring_view{textStr});
+                        std::erase_if(result.value, [](char c){ return c == '\r'; });
+                        while (!result.value.empty() && std::isspace(static_cast<unsigned char>(result.value.back()))) {
+                            result.value.pop_back();
+                        }
+                        ::SysFreeString(textStr);
+                    }
+                    range->Release();
                 }
-                ::SysFreeString(textStr);
+                textPattern->Release();
             }
-            range->Release();
-        }
-        textPattern->Release();
-    }
-
-    // Fallback to ValuePattern for inputs
-    if (result.value.empty()) {
-        IUIAutomationValuePattern* valuePattern = nullptr;
-        if (SUCCEEDED(el->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(&valuePattern))) && valuePattern) {
-            BSTR valStr = nullptr;
-            if (SUCCEEDED(valuePattern->get_CurrentValue(&valStr)) && valStr) {
-                result.value = wide_to_utf8(std::wstring_view{valStr});
-                ::SysFreeString(valStr);
-            }
-            valuePattern->Release();
         }
     }
 
-    // Recurse into children (max depth 32 to accurately step into deeply nested WebView2 DOMs)
+    // 11. Fallback to ValuePattern for input controls
+    if (result.value.empty() &&
+        (ctypeId == UIA_EditControlTypeId || ctypeId == UIA_ComboBoxControlTypeId ||
+         ctypeId == UIA_ProgressBarControlTypeId || ctypeId == UIA_SliderControlTypeId ||
+         ctypeId == UIA_SpinnerControlTypeId || ctypeId == UIA_DocumentControlTypeId)) {
+        VARIANT varVal;
+        VariantInit(&varVal);
+        bool hasValPattern = true;
+        if (SUCCEEDED(el->GetCachedPropertyValue(UIA_IsValuePatternAvailablePropertyId, &varVal)) &&
+            varVal.vt == VT_BOOL) {
+            hasValPattern = (varVal.boolVal == VARIANT_TRUE);
+        }
+        VariantClear(&varVal);
+
+        if (hasValPattern) {
+            IUIAutomationValuePattern* valuePattern = nullptr;
+            if (SUCCEEDED(el->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(&valuePattern))) && valuePattern) {
+                BSTR valStr = nullptr;
+                if (SUCCEEDED(valuePattern->get_CurrentValue(&valStr)) && valStr) {
+                    result.value = wide_to_utf8(std::wstring_view{valStr});
+                    ::SysFreeString(valStr);
+                }
+                valuePattern->Release();
+            }
+        }
+    }
+
+    // 12. Recurse into children (max depth 32) using cached batching
     if (depth < 32) {
-        auto* automation = reinterpret_cast<IUIAutomation*>(m_automation);
-        IUIAutomationCondition* condition = nullptr;
-        automation->CreateTrueCondition(&condition);
+        auto* cacheReq = reinterpret_cast<IUIAutomationCacheRequest*>(m_cacheRequest);
+        auto* condition = reinterpret_cast<IUIAutomationCondition*>(m_trueCondition);
 
         IUIAutomationElementArray* childrenArray = nullptr;
-        // FindAll using TreeScope_Children explicitly forces Chromium providers to evaluate 
-        // and physically bridge inner web DOMs rather than lazily skipping them.
-        if (SUCCEEDED(el->FindAll(TreeScope_Children, condition, &childrenArray)) && childrenArray) {
+        HRESULT hr = E_FAIL;
+        if (cacheReq && condition) {
+            hr = el->FindAllBuildCache(TreeScope_Children, condition, cacheReq, &childrenArray);
+        } else if (condition) {
+            hr = el->FindAll(TreeScope_Children, condition, &childrenArray);
+        }
+
+        if (SUCCEEDED(hr) && childrenArray) {
             int length = 0;
             childrenArray->get_Length(&length);
+            result.children.reserve(static_cast<size_t>(length));
             for (int i = 0; i < length; ++i) {
                 IUIAutomationElement* child = nullptr;
                 if (SUCCEEDED(childrenArray->GetElement(i, &child)) && child) {
@@ -365,7 +555,6 @@ UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwn
             }
             childrenArray->Release();
         }
-        if (condition) condition->Release();
     }
 
     return result;
@@ -486,13 +675,13 @@ const UIElement* UIElement::findParent(const std::vector<int>& targetRuntimeId) 
 }
 
 // ── UIElement::findInSubtree ──────────────────────────────────────────────────
-const UIElement* UIElement::findInSubtree(std::string_view nameOrId, std::string_view controlTypeFilter) const {
+const UIElement* UIElement::findInSubtree(std::string_view nameOrId, std::string_view controlTypeFilter, DWORD excludedPid) const {
 
-    if (auto* res = findBestMatch(nameOrId, controlTypeFilter)) return res;
+    if (auto* res = findBestMatch(nameOrId, controlTypeFilter, excludedPid)) return res;
     return nullptr;
 }
 
-const UIElement* UIElement::findBestMatch(std::string_view nameOrId, std::string_view controlTypeFilter) const {
+const UIElement* UIElement::findBestMatch(std::string_view nameOrId, std::string_view controlTypeFilter, DWORD excludedPid) const {
     std::string query(nameOrId);
     to_lower_inplace(query);
     
@@ -502,11 +691,19 @@ const UIElement* UIElement::findBestMatch(std::string_view nameOrId, std::string
     const UIElement* best = nullptr;
     int bestScore = -1;
 
+    DWORD targetExcludedPid = 0;
+    if (excludedPid == UIA_EXCLUDE_NONE) {
+        targetExcludedPid = 0;
+    } else if (excludedPid != 0) {
+        targetExcludedPid = excludedPid;
+    } else {
+        targetExcludedPid = ::GetCurrentProcessId();
+    }
+
     auto check = [&](const UIElement& el) {
-        // STRICT SELF-EXCLUSION: Completely ignore any elements from our own process.
+        // STRICT SELF-EXCLUSION: Completely ignore any elements from our own process (or injected test PID).
         // This prevents WinBot from ever 'seeing' itself and its own REPL text.
-        static DWORD selfPid = ::GetCurrentProcessId();
-        if (el.dwProcessId == selfPid) return;
+        if (targetExcludedPid != 0 && el.dwProcessId == targetExcludedPid) return;
 
         int score = 0;
         
@@ -587,10 +784,10 @@ const UIElement* UIElement::findByRuntimeId(const std::vector<int>& id) const {
 }
 
 // ── UIElement::findDescendant ─────────────────────────────────────────────────
-const UIElement* UIElement::findDescendant(std::string_view nameOrId, std::string_view controlTypeFilter) const {
+const UIElement* UIElement::findDescendant(std::string_view nameOrId, std::string_view controlTypeFilter, DWORD excludedPid) const {
     // Only search children (important for WaitSelect/Click children)
     for (const auto& child : children) {
-        if (const UIElement* res = child.findInSubtree(nameOrId, controlTypeFilter)) return res;
+        if (const UIElement* res = child.findInSubtree(nameOrId, controlTypeFilter, excludedPid)) return res;
     }
     return nullptr;
 }

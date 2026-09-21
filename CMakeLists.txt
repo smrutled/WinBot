@@ -83,14 +83,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(luabridge)
 
-# ── Source files ──────────────────────────────────────────────────────────────
-file(GLOB_RECURSE WINBOT_SOURCES
+# ── Source files & WinBot_Core ────────────────────────────────────────────────
+file(GLOB_RECURSE WINBOT_CORE_SOURCES
     "src/*.cpp"
 )
+list(FILTER WINBOT_CORE_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
 
-add_executable(WinBot ${WINBOT_SOURCES})
+add_library(WinBot_Core STATIC ${WINBOT_CORE_SOURCES})
 
-target_include_directories(WinBot PRIVATE
+target_include_directories(WinBot_Core PUBLIC
     src
     third_party
     ${stb_SOURCE_DIR}
@@ -98,8 +99,7 @@ target_include_directories(WinBot PRIVATE
     ${luabridge_SOURCE_DIR}/Source
 )
 
-# ── Link libraries ────────────────────────────────────────────────────────────
-target_link_libraries(WinBot PRIVATE
+target_link_libraries(WinBot_Core PUBLIC
     nlohmann_json::nlohmann_json
     sqlite3
     lua
@@ -115,7 +115,17 @@ target_link_libraries(WinBot PRIVATE
     dwmapi
 )
 
-# ── Per-target compile options ────────────────────────────────────────────────
+if(MSVC)
+    target_compile_options(WinBot_Core PUBLIC
+        /W4
+        /std:c++latest
+    )
+endif()
+
+# ── WinBot Executable ─────────────────────────────────────────────────────────
+add_executable(WinBot src/main.cpp)
+target_link_libraries(WinBot PRIVATE WinBot_Core)
+
 if(MSVC)
     target_compile_options(WinBot PRIVATE
         /W4
@@ -125,7 +135,58 @@ endif()
 
 # ── Output directory ──────────────────────────────────────────────────────────
 set_target_properties(WinBot PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
 )
+
+# ── Tests & Benchmarks ────────────────────────────────────────────────────────
+option(BUILD_TESTING "Build the testing tree." ON)
+if(BUILD_TESTING)
+    enable_testing()
+
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.15.2
+        GIT_SHALLOW    TRUE
+    )
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+
+    file(GLOB_RECURSE TEST_SOURCES
+        "tests/*.cpp"
+        "tests/*.h"
+    )
+
+    add_executable(WinBot_Tests ${TEST_SOURCES})
+    target_include_directories(WinBot_Tests PRIVATE
+        src
+        tests
+    )
+    target_link_libraries(WinBot_Tests PRIVATE
+        WinBot_Core
+        GTest::gtest
+        GTest::gtest_main
+    )
+
+    if(MSVC)
+        target_compile_options(WinBot_Tests PRIVATE
+            /W4
+            /std:c++latest
+        )
+    endif()
+
+    set_target_properties(WinBot_Tests PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+    )
+
+    include(GoogleTest)
+    gtest_discover_tests(WinBot_Tests
+        DISCOVERY_TIMEOUT 60
+    )
+endif()
 
 message(STATUS "WinBot UI Tool Server configured: C++23/latest, MSVC ${MSVC_VERSION}")

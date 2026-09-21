@@ -129,8 +129,10 @@ UIHandle& UIHandle::wait(int ms) {
 
 // ── select(nameOrId, timeoutMs) — scoped search ───────────────────────────────
 UIHandle UIHandle::select(std::string_view nameOrId, int timeoutMs, std::string_view controlType) {
+    const DWORD excluded = (m_element.dwProcessId == ::GetCurrentProcessId()) ? UIA_EXCLUDE_NONE : 0;
+
     // First try the cached subtree (instant, no re-scan)
-    if (const UIElement* child = m_element.findDescendant(nameOrId, controlType)) {
+    if (const UIElement* child = m_element.findDescendant(nameOrId, controlType, excluded)) {
         return UIHandle{ *child, m_scanner };
     }
 
@@ -143,7 +145,7 @@ UIHandle UIHandle::select(std::string_view nameOrId, int timeoutMs, std::string_
             
             // Re-sync with live app
             if (refresh()) {
-                if (const UIElement* child = m_element.findDescendant(nameOrId, controlType)) {
+                if (const UIElement* child = m_element.findDescendant(nameOrId, controlType, excluded)) {
                     return UIHandle{ *child, m_scanner };
                 }
             }
