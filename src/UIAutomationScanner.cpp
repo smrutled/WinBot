@@ -230,32 +230,19 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanDesktop() const {
     auto* cacheReq = reinterpret_cast<IUIAutomationCacheRequest*>(m_cacheRequest);
     auto* condition = reinterpret_cast<IUIAutomationCondition*>(m_trueCondition);
 
-    // Build updated cache for the desktop root element itself
-    IUIAutomationElement* cachedRoot = nullptr;
-    if (cacheReq && SUCCEEDED(root->BuildUpdatedCache(cacheReq, &cachedRoot)) && cachedRoot) {
-        root->Release();
-        root = cachedRoot;
-    }
-
     // Populate desktop root element metadata
     UIElement result;
     HWND desktopHwnd = nullptr;
-    UIA_HWND uiaHwnd = nullptr;
-    if (SUCCEEDED(root->get_CachedNativeWindowHandle(&uiaHwnd)) && uiaHwnd) {
-        desktopHwnd = reinterpret_cast<HWND>(uiaHwnd);
-    } else {
-        root->get_CurrentNativeWindowHandle(&uiaHwnd);
-        if (uiaHwnd) desktopHwnd = reinterpret_cast<HWND>(uiaHwnd);
-    }
+    root->get_CurrentNativeWindowHandle((UIA_HWND*)&desktopHwnd);
     result.ownerHwnd = desktopHwnd;
 
     int rootPid = 0;
-    if (SUCCEEDED(root->get_CachedProcessId(&rootPid)) || SUCCEEDED(root->get_CurrentProcessId(&rootPid))) {
+    if (SUCCEEDED(root->get_CurrentProcessId(&rootPid))) {
         result.dwProcessId = static_cast<DWORD>(rootPid);
     }
 
     BSTR rootName = nullptr;
-    if ((SUCCEEDED(root->get_CachedName(&rootName)) && rootName) || (SUCCEEDED(root->get_CurrentName(&rootName)) && rootName)) {
+    if (SUCCEEDED(root->get_CurrentName(&rootName)) && rootName) {
         result.name = wide_to_utf8(std::wstring_view{ rootName });
         ::SysFreeString(rootName);
     }
@@ -264,7 +251,7 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanDesktop() const {
     }
 
     CONTROLTYPEID rootCtypeId = 0;
-    if (SUCCEEDED(root->get_CachedControlType(&rootCtypeId)) || SUCCEEDED(root->get_CurrentControlType(&rootCtypeId))) {
+    if (SUCCEEDED(root->get_CurrentControlType(&rootCtypeId))) {
         result.controlType = controlTypeToString(rootCtypeId);
     }
     if (result.controlType.empty()) {
@@ -272,7 +259,7 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanDesktop() const {
     }
 
     RECT rootRect{};
-    if (SUCCEEDED(root->get_CachedBoundingRectangle(&rootRect)) || SUCCEEDED(root->get_CurrentBoundingRectangle(&rootRect))) {
+    if (SUCCEEDED(root->get_CurrentBoundingRectangle(&rootRect))) {
         result.bounds = rootRect;
     }
 
