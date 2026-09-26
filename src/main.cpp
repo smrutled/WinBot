@@ -9,6 +9,7 @@
 #include "ToolRegistry.h"
 #include "BrowserAutomation.h"
 #include "ToolServer.h"
+#include "McpServer.h"
 #include "SiteProfileRegistry.h"
 #include "LuaRuntime.h"
 
@@ -199,17 +200,41 @@ int main(int argc, char* argv[]) {
 
     // ── Tool registry + server ────────────────────────────────────────────────
     ToolRegistry tools;
-    ToolServer server{
-        ToolServer::Config{ 
-            .actionDelayMs = cfg.value("action_delay_ms", 200),
-            .humanMovement = cfg.value("human_movement", false)
-        },
-        tools, uia, capture, browser, perms, auditLog, memory, siteProfiles, luaRuntime
-    };
 
-    // ── Run ───────────────────────────────────────────────────────────────────
-    auditLog.note("=== WinBot session started ===");
-    server.run();   // blocks until stdin closes or kill-switch fires
+    if (g_mcpMode) {
+        // ── MCP mode: full JSON-RPC 2.0 / Model Context Protocol server ──────
+        // The McpServer registers tools into the registry the same way, then
+        // speaks proper MCP protocol on stdin/stdout.
+        ToolServer toolServerForRegistration{
+            ToolServer::Config{
+                .actionDelayMs = cfg.value("action_delay_ms", 200),
+                .humanMovement = cfg.value("human_movement", false)
+            },
+            tools, uia, capture, browser, perms, auditLog, memory, siteProfiles, luaRuntime
+        };
+        // Tools are now registered in `tools` — create the MCP server.
+        McpServer mcpServer{
+            McpServer::Config{
+                .serverName    = "WinBot",
+                .serverVersion = "0.2.0",
+                .actionDelayMs = cfg.value("action_delay_ms", 200)
+            },
+            tools
+        };
+        auditLog.note("=== WinBot MCP session started ===");
+        mcpServer.run();
+    } else {
+        // ── Legacy mode: custom WinBot JSON protocol ─────────────────────────
+        ToolServer server{
+            ToolServer::Config{
+                .actionDelayMs = cfg.value("action_delay_ms", 200),
+                .humanMovement = cfg.value("human_movement", false)
+            },
+            tools, uia, capture, browser, perms, auditLog, memory, siteProfiles, luaRuntime
+        };
+        auditLog.note("=== WinBot session started ===");
+        server.run();   // blocks until stdin closes or kill-switch fires
+    }
     auditLog.note("=== WinBot session ended ===");
 
     KillSwitch::uninstall();

@@ -1,17 +1,12 @@
 # WinBot
 
-A high-performance Windows UI Automation and Desktop Control Tool Server built in modern C++23. WinBot enables AI agents (such as Claude, Gemini, etc.) to perceive, interact with, and automate standard Windows desktop environments through a simple JSON-over-stdio RPC protocol.
-
-It includes both **Python** and **TypeScript** wrappers that bridge it to the standard [Model Context Protocol (MCP)](https://modelcontextprotocol.io) specification.
+A high-performance Windows UI Automation and Desktop Control Tool Server built in modern C++23. WinBot enables AI agents to perceive, interact with, and automate standard Windows desktop environments through a built-in [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server over stdio.
 
 ```
 [ AI Agent / MCP Client ]
          │
-         ▼ (MCP JSON-RPC over stdio)
-[ mcp/winbot_mcp.py ] or [ mcp-ts/src/index.ts ]
-         │
-         ▼ (Simple JSON over stdio, with --mcp flag)
-[ WinBot.exe ] (Compiled C++23 Server)
+         ▼ (MCP JSON-RPC 2.0 over stdio)
+[ WinBot.exe --mcp ]
 ```
 
 ## Features
@@ -52,67 +47,29 @@ This compiles the C++ binary to `build/bin/Release/WinBot.exe`.
 
 ---
 
-## Operating as an MCP Server
+## MCP Server Mode
 
-WinBot includes official bridges to translate standard MCP tool calls into its native protocol.
+WinBot has a built-in MCP server that speaks JSON-RPC 2.0 over stdio. Pass `--mcp` to enable it:
 
-### Option A: Python Bridge
-1. Install dependency:
-   ```cmd
-   pip install -r mcp/requirements.txt
-   ```
-2. Test using the MCP Inspector:
-   ```cmd
-   npx @modelcontextprotocol/inspector python mcp/winbot_mcp.py
-   ```
-
-### Option B: TypeScript Bridge
-1. Install and compile:
-   ```cmd
-   cd mcp-ts
-   npm install
-   npm run build
-   ```
-2. Test using the MCP Inspector:
-   ```cmd
-   npx @modelcontextprotocol/inspector node dist/index.js
-   ```
-
----
-
-## Connecting to AI Clients
-
-### 1. Claude Desktop
-Add the following to your Claude Desktop config at `%APPDATA%\Claude\claude_desktop_config.json`:
-
-Using Python:
-```json
-{
-  "mcpServers": {
-    "winbot": {
-      "command": "python",
-      "args": ["C:/Projects/github/WinBot/mcp/winbot_mcp.py"]
-    }
-  }
-}
-```
-
-Using Node (TypeScript):
-```json
-{
-  "mcpServers": {
-    "winbot": {
-      "command": "node",
-      "args": ["C:/Projects/github/WinBot/mcp-ts/dist/index.js"]
-    }
-  }
-}
-```
-*(Make sure to use forward slashes `/` and provide the absolute path to your repository).*
-
-### 2. Claude Code (CLI)
 ```cmd
-claude mcp add winbot -- python C:/Projects/github/WinBot/mcp/winbot_mcp.py
+WinBot.exe --mcp
+```
+
+In MCP mode, stdout is reserved for JSON-RPC messages and all logging goes to stderr. Interactive confirmation prompts are automatically disabled to prevent deadlocks.
+
+### Connecting to an MCP Client
+
+Add WinBot to your MCP client configuration. The exact format varies by client, but the server entry is:
+
+```json
+{
+  "mcpServers": {
+    "winbot": {
+      "command": "C:/path/to/WinBot.exe",
+      "args": ["--mcp"]
+    }
+  }
+}
 ```
 
 ---
