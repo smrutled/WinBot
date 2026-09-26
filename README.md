@@ -17,7 +17,6 @@ A high-performance Windows UI Automation and Desktop Control Tool Server built i
 - **CDP-based Browser Automation**: Controls Chrome or Edge over Chrome DevTools Protocol (CDP). Supports navigating, DOM extraction, JavaScript execution, and custom *Site Profiles* for structured page data extraction.
 - **Embedded Lua Scripting**: Executes Lua 5.4 scripts directly inside the WinBot engine. Scripts have full access to high-speed automation API functions via a global `winbot` namespace.
 - **File & Shell Execution**: Runs PowerShell or CMD commands. Provides standard file APIs (read, write, append, copy, delete, list) protected by a permission manager.
-- **SQLite Persistent Memory**: Stores key-value facts across agent runs in `data/memory.db`.
 - **Built-in Security**:
   - **Global Kill Switch**: Monitors a system-wide hotkey (`Ctrl+Alt+X` by default) to immediately abort and exit.
   - **Permission Bounding**: Configurable path restrictions (e.g., user directory only), process blocklists (system processes), and dangerous shell patterns.
@@ -33,7 +32,7 @@ A high-performance Windows UI Automation and Desktop Control Tool Server built i
 - CMake 3.25+
 
 ### Building WinBot
-Building WinBot fetches third-party libraries (nlohmann/json, SQLite, Lua, LuaBridge3, and stb) automatically.
+Building WinBot fetches third-party libraries (nlohmann/json, Lua, LuaBridge3, and stb) automatically.
 
 1. **Configure with CMake**:
    ```cmd
@@ -118,10 +117,6 @@ WinBot registers the following tools automatically:
 | | `browser_read_page` | Extract structured data using matching *Site Profile* |
 | | `browser_save_profile` | Register custom *Site Profile* for structured scraping |
 | | `browser_eval` | Execute arbitrary JS in the active tab |
-| **Memory** | `remember` | Store fact key-value pair in SQLite database |
-| | `recall` | Retrieve memory entry by key |
-| | `recall_all` | List all stored facts |
-| | `forget` | Delete fact by key |
 | **Lua Scripting** | `lua_exec` | Run inline Lua 5.4 automation script |
 | | `lua_run` | Execute Lua automation file from disk |
 
@@ -145,7 +140,6 @@ On startup, WinBot will read or generate `config.json` inside its execution dire
 ## Dependencies
 - **nlohmann/json**: JSON format serialization/parsing.
 - **stb**: Image encoding.
-- **SQLite 3**: Persistent local database.
 - **Lua 5.4 & LuaBridge3**: Embedded scripting engine.
 - **Windows SDK**: Win32, UIAutomationCore, dwmapi.
 

@@ -8,7 +8,6 @@
 #include "BrowserAutomation.h"
 #include "PermissionSystem.h"
 #include "AuditLog.h"
-#include "Memory.h"
 #include "SiteProfileRegistry.h"
 #include "LuaRuntime.h"
 
@@ -34,7 +33,6 @@ public:
         BrowserAutomation&  browser,
         PermissionSystem&   perms,
         AuditLog&           audit,
-        Memory&             memory,
         SiteProfileRegistry& siteProfiles,
         LuaRuntime&          luaRuntime
     );
@@ -50,7 +48,6 @@ private:
     BrowserAutomation&   m_browser;
     PermissionSystem&    m_perms;
     AuditLog&            m_audit;
-    Memory&              m_memory;
     SiteProfileRegistry& m_siteProfiles;
     LuaRuntime&          m_luaRuntime;
 

@@ -44,22 +44,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(stb)
 
-# SQLite3 — persistent memory store (amalgamation, no extra deps)
-FetchContent_Declare(
-    sqlite_amalgamation
-    URL            https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
-FetchContent_MakeAvailable(sqlite_amalgamation)
-
-add_library(sqlite3 STATIC
-    ${sqlite_amalgamation_SOURCE_DIR}/sqlite3.c
-)
-target_include_directories(sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
-target_compile_definitions(sqlite3 PRIVATE
-    SQLITE_THREADSAFE=1
-    SQLITE_DEFAULT_WAL_SYNCHRONOUS=1
-)
 
 # Lua 5.5.1 — Embedded scripting engine
 FetchContent_Declare(
@@ -95,13 +79,11 @@ target_include_directories(WinBot_Core PUBLIC
     src
     third_party
     ${stb_SOURCE_DIR}
-    ${sqlite_amalgamation_SOURCE_DIR}
     ${luabridge_SOURCE_DIR}/Source
 )
 
 target_link_libraries(WinBot_Core PUBLIC
     nlohmann_json::nlohmann_json
-    sqlite3
     lua
 # Windows SDK
     UIAutomationCore

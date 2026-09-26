@@ -32,11 +32,11 @@ static std::string toBase64(const std::vector<uint8_t> &data) {
 ToolServer::ToolServer(Config cfg, ToolRegistry &tools,
                        UIAutomationScanner &uia, ScreenCapture &capture,
                        BrowserAutomation &browser, PermissionSystem &perms,
-                       AuditLog &audit, Memory &memory,
+                       AuditLog &audit,
                        SiteProfileRegistry &siteProfiles,
                        LuaRuntime &luaRuntime)
     : m_cfg(cfg), m_tools(tools), m_uia(uia), m_capture(capture),
-      m_browser(browser), m_perms(perms), m_audit(audit), m_memory(memory),
+      m_browser(browser), m_perms(perms), m_audit(audit),
       m_siteProfiles(siteProfiles), m_luaRuntime(luaRuntime) {
   registerBuiltinTools();
 }
@@ -617,45 +617,6 @@ void ToolServer::registerBuiltinTools() {
                    return browserEval(m_browser, a.value("js", ""));
                  }});
 
-  // ── Persistent Memory (SQLite) ───────────────────────────────────────────
-  maybeRegister(
-      {"remember",
-       "Save a key-value fact to persistent memory",
-       {{"type", "object"},
-        {"properties",
-         {{"key", {{"type", "string"}}}, {"value", {{"type", "string"}}}}},
-        {"required", {"key", "value"}}},
-       [this](const json &a) -> ToolResult {
-         return m_memory.store(a.value("key", ""), a.value("value", ""));
-       }});
-
-  maybeRegister({"recall",
-                 "Retrieve a fact from persistent memory by key",
-                 {{"type", "object"},
-                  {"properties", {{"key", {{"type", "string"}}}}},
-                  {"required", {"key"}}},
-                 [this](const json &a) {
-                   return m_memory.retrieve(a.value("key", ""));
-                 }});
-
-  maybeRegister({"recall_all",
-                 "List all entries stored in persistent memory",
-                 {{"type", "object"}, {"properties", json::object()}},
-                 [this](const json &) -> ToolResult {
-                   auto entries = m_memory.listAll();
-                   std::string out;
-                   for (const auto &[k, v, ts] : entries)
-                     out += std::format("{} = {} (updated: {})\n", k, v, ts);
-                   return ok(out.empty() ? "(no memories)" : out);
-                 }});
-
-  maybeRegister(
-      {"forget",
-       "Delete a memory entry by key",
-       {{"type", "object"},
-        {"properties", {{"key", {{"type", "string"}}}}},
-        {"required", {"key"}}},
-       [this](const json &a) { return m_memory.remove(a.value("key", "")); }});
 
   // ── Lua Scripting Tools ──────────────────────────────────────────────────
   maybeRegister({"lua_exec",

@@ -5,7 +5,6 @@
 #include "UIAutomationScanner.h"
 #include "UIADebugger.h"
 #include "ScreenCapture.h"
-#include "Memory.h"
 #include "ToolRegistry.h"
 #include "BrowserAutomation.h"
 #include "ToolServer.h"
@@ -97,11 +96,6 @@ static PermissionSystem::Config buildPermConfig(const json& cfg) {
         } else if (item == "process") {
             perm.disabledTools.insert("kill_process");
             perm.disabledTools.insert("get_processes");
-        } else if (item == "memory") {
-            perm.disabledTools.insert("remember");
-            perm.disabledTools.insert("recall");
-            perm.disabledTools.insert("recall_all");
-            perm.disabledTools.insert("forget");
         } else if (item == "web") {
             perm.disabledTools.insert("http_get");
             perm.disabledTools.insert("search_web");
@@ -188,7 +182,6 @@ int main(int argc, char* argv[]) {
     UIAutomationScanner uia;
     uia.setHumanMovement(cfg.value("human_movement", false));
     ScreenCapture       capture;
-    Memory              memory{ exeDir / "data" / "memory.db" };
     SiteProfileRegistry siteProfiles{ exeDir / cfg.value("site_profiles_dir", "data/site_profiles") };
 
     BrowserAutomation browser{
@@ -210,7 +203,7 @@ int main(int argc, char* argv[]) {
                 .actionDelayMs = cfg.value("action_delay_ms", 200),
                 .humanMovement = cfg.value("human_movement", false)
             },
-            tools, uia, capture, browser, perms, auditLog, memory, siteProfiles, luaRuntime
+            tools, uia, capture, browser, perms, auditLog, siteProfiles, luaRuntime
         };
         // Tools are now registered in `tools` — create the MCP server.
         McpServer mcpServer{
@@ -230,7 +223,7 @@ int main(int argc, char* argv[]) {
                 .actionDelayMs = cfg.value("action_delay_ms", 200),
                 .humanMovement = cfg.value("human_movement", false)
             },
-            tools, uia, capture, browser, perms, auditLog, memory, siteProfiles, luaRuntime
+            tools, uia, capture, browser, perms, auditLog, siteProfiles, luaRuntime
         };
         auditLog.note("=== WinBot session started ===");
         server.run();   // blocks until stdin closes or kill-switch fires
