@@ -188,9 +188,9 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanWindow(
     HWND found = findBestWindow(title);
 
     if (!found) {
-        // FALLBACK: Search Desktop Root for any direct child matching the name.
+        // FALLBACK: Search Desktop Root for any Window matching the name.
         if (auto desktop = scanDesktop(); desktop) {
-            if (const UIElement* best = desktop->findBestMatch(title)) {
+            if (const UIElement* best = desktop->findBestMatch(title, "Window")) {
                 return *best;
             }
         }
@@ -263,11 +263,9 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanDesktop() const {
         result.bounds = rootRect;
     }
 
-    // Enumerate direct children of desktop root (top-level windows) using cache
+    // Enumerate direct children of desktop root (top-level windows)
     IUIAutomationElementArray* childrenArray = nullptr;
-    if (cacheReq && condition) {
-        hr = root->FindAllBuildCache(TreeScope_Children, condition, cacheReq, &childrenArray);
-    } else if (condition) {
+    if (condition) {
         hr = root->FindAll(TreeScope_Children, condition, &childrenArray);
     }
     root->Release();
@@ -839,7 +837,7 @@ std::expected<UIHandle, std::string> UIAutomationScanner::waitForWindow(
         auto tree = scanWindow(title);
         // Only return if we found the window AND it has a name (or we're out of time)
         bool outOfTime = std::chrono::steady_clock::now() > (deadline - std::chrono::milliseconds(500));
-        if (tree && (!tree->name.empty() || outOfTime)) {
+        if (tree && (tree->controlType == "Window" || outOfTime) && (!tree->name.empty() || outOfTime)) {
             return UIHandle{ std::move(*tree), this };
         }
         

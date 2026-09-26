@@ -24,6 +24,7 @@ cmake_install.cmake
 install_manifest.txt
 compile_commands.json
 .cache/
+Testing/
 # Dependencies
 third_party/stb_image.h
 third_party/stb_image_write.h
