@@ -3,8 +3,6 @@
     "llvm-vs-code-extensions.vscode-clangd",
     "ms-vscode.cmake-tools",
     "ms-vscode.powershell",
-    "sumneko.lua",
-    "ms-python.python",
-    "dbaeumer.vscode-eslint"
+    "sumneko.lua"
   ]
 }
