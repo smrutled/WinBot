@@ -5,6 +5,20 @@ void ToolRegistry::registerTool(ToolDef def) {
     m_tools.push_back(std::move(def));
 }
 
+void ToolRegistry::registerTool(std::unique_ptr<ITool> tool) {
+    if (!tool) return;
+    std::shared_ptr<ITool> shared = std::move(tool);
+    ToolDef def{
+        .name = shared->name(),
+        .description = shared->description(),
+        .parametersSchema = shared->parametersSchema(),
+        .handler = [shared](const json& args) -> ToolResult {
+            return shared->execute(args);
+        }
+    };
+    registerTool(std::move(def));
+}
+
 ToolResult ToolRegistry::dispatch(const json& toolCall) const {
     std::string toolName = toolCall.value("tool", "");
     if (toolName.empty()) return err("Tool call missing 'tool' field");

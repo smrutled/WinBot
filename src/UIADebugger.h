@@ -1,7 +1,7 @@
 #ifndef WINBOT_UIADEBUGGER_H
 #define WINBOT_UIADEBUGGER_H
-#include "UIAutomationScanner.h"
-#include "UIHandle.h"
+#include "tools/UIAutomationScanner.h"
+#include "tools/UIHandle.h"
 #include <string>
 #include <unordered_map>
 #include <optional>

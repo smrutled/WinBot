@@ -1,5 +1,5 @@
 #include "BrowserAutomation.h"
-#include "tools/InputTools.h"
+#include "InputTools.h"
 #include <winhttp.h>
 #include <shellapi.h>
 #include <chrono>

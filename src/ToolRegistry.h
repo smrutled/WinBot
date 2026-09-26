@@ -1,7 +1,9 @@
 #ifndef WINBOT_TOOLREGISTRY_H
 #define WINBOT_TOOLREGISTRY_H
 #include "Common.h"
+#include "ITool.h"
 #include <functional>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -23,8 +25,11 @@ public:
         Handler     handler;
     };
 
-    // Register a tool
+    // Register a tool via ToolDef
     void registerTool(ToolDef def);
+
+    // Register a tool via the ITool interface
+    void registerTool(std::unique_ptr<ITool> tool);
 
     // Dispatch a tool call from a parsed JSON object {"tool": "...", "args": {...}}
     [[nodiscard]] ToolResult dispatch(const json& toolCall) const;

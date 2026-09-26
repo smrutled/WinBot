@@ -77,6 +77,7 @@ add_library(WinBot_Core STATIC ${WINBOT_CORE_SOURCES})
 
 target_include_directories(WinBot_Core PUBLIC
     src
+    src/tools
     third_party
     ${stb_SOURCE_DIR}
     ${luabridge_SOURCE_DIR}/Source
@@ -144,6 +145,7 @@ if(BUILD_TESTING)
     add_executable(WinBot_Tests ${TEST_SOURCES})
     target_include_directories(WinBot_Tests PRIVATE
         src
+        src/tools
         tests
     )
     target_link_libraries(WinBot_Tests PRIVATE

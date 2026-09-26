@@ -303,3 +303,23 @@ ScreenCapture::scale(const CaptureResult& src, int maxDim) {
     // TODO: integrate stb_image_resize for proper downscaling
     return src; // Return original if resize not implemented
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+std::string ScreenCapture::toBase64(std::span<const uint8_t> data) {
+    static constexpr char b64[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string encoded;
+    encoded.reserve(((data.size() + 2) / 3) * 4);
+    for (size_t i = 0; i < data.size(); i += 3) {
+        uint32_t n = static_cast<uint32_t>(data[i]) << 16;
+        if (i + 1 < data.size())
+            n |= static_cast<uint32_t>(data[i + 1]) << 8;
+        if (i + 2 < data.size())
+            n |= static_cast<uint32_t>(data[i + 2]);
+        encoded += b64[(n >> 18) & 0x3F];
+        encoded += b64[(n >> 12) & 0x3F];
+        encoded += (i + 1 < data.size()) ? b64[(n >> 6) & 0x3F] : '=';
+        encoded += (i + 2 < data.size()) ? b64[n & 0x3F] : '=';
+    }
+    return encoded;
+}

@@ -1,7 +1,7 @@
 #ifndef WINBOT_BROWSERAUTOMATION_H
 #define WINBOT_BROWSERAUTOMATION_H
 
-#include "Common.h"
+#include "../Common.h"
 #include <UIAutomation.h>
 #include <string>
 

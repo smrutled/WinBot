@@ -1,5 +1,5 @@
 #include "UIHandle.h"
-#include "tools/InputTools.h"
+#include "InputTools.h"
 #include <stdexcept>
 #include <print>
 #include <thread>

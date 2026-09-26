@@ -1,9 +1,9 @@
 #include "LuaRuntime.h"
-#include "BrowserAutomation.h"
-#include "UIAutomationScanner.h"
+#include "tools/BrowserAutomation.h"
+#include "tools/UIAutomationScanner.h"
 #include "SiteProfileRegistry.h"
 #include "tools/InputTools.h"
-#include "UIHandle.h"
+#include "tools/UIHandle.h"
 
 extern "C" {
 #include <lua.h>

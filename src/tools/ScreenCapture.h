@@ -38,6 +38,9 @@ public:
     [[nodiscard]] static std::expected<CaptureResult, std::string> scale(
         const CaptureResult& src, int maxDim = 1280);
 
+    // Encode binary data to Base64 string
+    [[nodiscard]] static std::string toBase64(std::span<const uint8_t> data);
+
 private:
     // Encode a raw BGRA DIB to PNG bytes using stb_image_write
     [[nodiscard]] static std::expected<std::vector<uint8_t>, std::string> encodePng(

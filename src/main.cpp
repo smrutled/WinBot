@@ -2,15 +2,16 @@
 #include "KillSwitch.h"
 #include "AuditLog.h"
 #include "PermissionSystem.h"
-#include "UIAutomationScanner.h"
+#include "tools/UIAutomationScanner.h"
 #include "UIADebugger.h"
 #include "tools/ScreenCapture.h"
 #include "ToolRegistry.h"
-#include "BrowserAutomation.h"
+#include "tools/BrowserAutomation.h"
 #include "ToolServer.h"
 #include "McpServer.h"
 #include "SiteProfileRegistry.h"
 #include "LuaRuntime.h"
+#include "tools/BuiltinTools.h"
 
 #include <iostream>
 #include <fstream>
@@ -181,7 +182,6 @@ int main(int argc, char* argv[]) {
     // ── Core services ─────────────────────────────────────────────────────────
     UIAutomationScanner uia;
     uia.setHumanMovement(cfg.value("human_movement", false));
-    ScreenCapture       capture;
     SiteProfileRegistry siteProfiles{ exeDir / cfg.value("site_profiles_dir", "data/site_profiles") };
 
     BrowserAutomation browser{
@@ -191,21 +191,18 @@ int main(int argc, char* argv[]) {
 
     LuaRuntime luaRuntime{ browser, uia, siteProfiles };
 
-    // ── Tool registry + server ────────────────────────────────────────────────
+    // ── Tool registry + built-in tools registration ───────────────────────────
     ToolRegistry tools;
+    BuiltinTools::registerAll(tools, {
+        .uia          = uia,
+        .browser      = browser,
+        .perms        = perms,
+        .siteProfiles = siteProfiles,
+        .luaRuntime   = luaRuntime
+    });
 
     if (g_mcpMode) {
         // ── MCP mode: full JSON-RPC 2.0 / Model Context Protocol server ──────
-        // The McpServer registers tools into the registry the same way, then
-        // speaks proper MCP protocol on stdin/stdout.
-        ToolServer toolServerForRegistration{
-            ToolServer::Config{
-                .actionDelayMs = cfg.value("action_delay_ms", 200),
-                .humanMovement = cfg.value("human_movement", false)
-            },
-            tools, uia, capture, browser, perms, auditLog, siteProfiles, luaRuntime
-        };
-        // Tools are now registered in `tools` — create the MCP server.
         McpServer mcpServer{
             McpServer::Config{
                 .serverName    = "WinBot",
@@ -220,10 +217,10 @@ int main(int argc, char* argv[]) {
         // ── Legacy mode: custom WinBot JSON protocol ─────────────────────────
         ToolServer server{
             ToolServer::Config{
-                .actionDelayMs = cfg.value("action_delay_ms", 200),
-                .humanMovement = cfg.value("human_movement", false)
+                .actionDelayMs = cfg.value("action_delay_ms", 200)
             },
-            tools, uia, capture, browser, perms, auditLog, siteProfiles, luaRuntime
+            tools,
+            auditLog
         };
         auditLog.note("=== WinBot session started ===");
         server.run();   // blocks until stdin closes or kill-switch fires

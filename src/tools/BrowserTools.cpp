@@ -1,5 +1,5 @@
 #include "BrowserTools.h"
-#include "../BrowserAutomation.h"
+#include "BrowserAutomation.h"
 
 namespace tools {
 

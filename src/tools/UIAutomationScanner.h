@@ -1,6 +1,6 @@
 #ifndef WINBOT_UIAUTOMATIONSCANNER_H
 #define WINBOT_UIAUTOMATIONSCANNER_H
-#include "Common.h"
+#include "../Common.h"
 #include <chrono>
 #include <vector>
 

@@ -1,5 +1,5 @@
 #include "ScreenTools.h"
-#include "../UIAutomationScanner.h"
+#include "UIAutomationScanner.h"
 #include "ScreenCapture.h"
 
 // Global instances shared with Agent — initialized via extern references
