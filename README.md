@@ -82,7 +82,7 @@ WinBot registers the following tools automatically:
 | **Perception** | `ui_scan` | Scan the UI Automation tree of the focused window |
 | | `ui_scan_window` | Scan the UI Automation tree of a specific window by title |
 | | `screenshot` | Capture the desktop as base64-encoded PNG |
-| | `screenshot_window` | Capture a specific window by title |
+| | `screenshot_window` | Capture a specific window by title (captures in background even when occluded, or brings to front) |
 | | `screenshot_element` | Capture a tight bounding region as PNG |
 | | `get_window_list` | List all visible window titles and HWNDs |
 | | `get_cursor_position`| Get the current mouse coordinates |

@@ -26,6 +26,41 @@ ToolResult getWindowList() {
     return ok(result.empty() ? "(no visible windows)" : result);
 }
 
+void bringWindowToForeground(HWND hwnd) {
+    if (!hwnd || !::IsWindow(hwnd)) return;
+
+    if (::IsIconic(hwnd)) {
+        ::ShowWindow(hwnd, SW_RESTORE);
+    } else if (!::IsWindowVisible(hwnd)) {
+        ::ShowWindow(hwnd, SW_SHOW);
+    }
+
+    HWND fgWnd = ::GetForegroundWindow();
+    DWORD fgThread = fgWnd ? ::GetWindowThreadProcessId(fgWnd, nullptr) : 0;
+    DWORD targetThread = ::GetWindowThreadProcessId(hwnd, nullptr);
+    DWORD curThread = ::GetCurrentThreadId();
+
+    if (fgThread != 0 && fgThread != curThread) {
+        ::AttachThreadInput(curThread, fgThread, TRUE);
+    }
+    if (targetThread != 0 && targetThread != curThread && targetThread != fgThread) {
+        ::AttachThreadInput(curThread, targetThread, TRUE);
+    }
+
+    ::SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+    ::BringWindowToTop(hwnd);
+    ::SetForegroundWindow(hwnd);
+
+    if (targetThread != 0 && targetThread != curThread && targetThread != fgThread) {
+        ::AttachThreadInput(curThread, targetThread, FALSE);
+    }
+    if (fgThread != 0 && fgThread != curThread) {
+        ::AttachThreadInput(curThread, fgThread, FALSE);
+    }
+
+    ::Sleep(80);
+}
+
 ToolResult focusWindow(std::string_view title) {
     std::wstring wq = utf8_to_wide(title);
     to_lower_inplace(wq);
@@ -50,8 +85,7 @@ ToolResult focusWindow(std::string_view title) {
     }, reinterpret_cast<LPARAM>(&ctx_f));
 
     if (!best.hwnd) return err(std::format("Window '{}' not found", title));
-    ::ShowWindow(best.hwnd, SW_RESTORE);
-    ::SetForegroundWindow(best.hwnd);
+    bringWindowToForeground(best.hwnd);
     return ok(std::format("Focused window: {}", title));
 }
 

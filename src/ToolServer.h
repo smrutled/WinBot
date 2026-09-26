@@ -4,7 +4,7 @@
 #include "Protocol.h"
 #include "ToolRegistry.h"
 #include "UIAutomationScanner.h"
-#include "ScreenCapture.h"
+#include "tools/ScreenCapture.h"
 #include "BrowserAutomation.h"
 #include "PermissionSystem.h"
 #include "AuditLog.h"

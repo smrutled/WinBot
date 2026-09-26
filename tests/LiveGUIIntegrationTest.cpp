@@ -3,6 +3,7 @@
 #include "UIAutomationScanner.h"
 #include "UIHandle.h"
 #include "UIADebugger.h"
+#include "tools/ScreenCapture.h"
 #include "tools/WindowTools.h"
 
 #include <windows.h>
@@ -178,6 +179,52 @@ TEST(LiveGUITest, NativeWin32App_DebuggerDotChaining) {
 
   std::this_thread::sleep_for(std::chrono::milliseconds(150));
   EXPECT_TRUE(MockWin32Window::s_buttonClicked.load());
+}
+
+// ── ScreenCapture captureWindow Tests ─────────────────────────────────────────
+TEST(LiveGUITest, CaptureWindow_Offscreen_MockWin32Window) {
+  MockWin32Window mockApp;
+  ASSERT_TRUE(mockApp.isReady()) << "Failed to initialize mock Win32 window";
+
+  auto res = ScreenCapture::captureWindow(mockApp.getHwnd(), false);
+  ASSERT_TRUE(res.has_value()) << "Offscreen capture failed: " << (res ? "" : res.error());
+  EXPECT_GT(res->width, 0);
+  EXPECT_GT(res->height, 0);
+  EXPECT_FALSE(res->pngBytes.empty());
+  // Verify PNG header: 0x89 'P' 'N' 'G'
+  ASSERT_GE(res->pngBytes.size(), 8u);
+  EXPECT_EQ(res->pngBytes[0], 0x89);
+  EXPECT_EQ(res->pngBytes[1], 'P');
+  EXPECT_EQ(res->pngBytes[2], 'N');
+  EXPECT_EQ(res->pngBytes[3], 'G');
+}
+
+TEST(LiveGUITest, CaptureWindow_BringToFront_MockWin32Window) {
+  MockWin32Window mockApp;
+  ASSERT_TRUE(mockApp.isReady()) << "Failed to initialize mock Win32 window";
+
+  auto res = ScreenCapture::captureWindow(mockApp.getHwnd(), true);
+  ASSERT_TRUE(res.has_value()) << "Foreground capture failed: " << (res ? "" : res.error());
+  EXPECT_GT(res->width, 0);
+  EXPECT_GT(res->height, 0);
+  EXPECT_FALSE(res->pngBytes.empty());
+  ASSERT_GE(res->pngBytes.size(), 8u);
+  EXPECT_EQ(res->pngBytes[0], 0x89);
+}
+
+TEST(LiveGUITest, CaptureWindow_MinimizedWindow_MockWin32Window) {
+  MockWin32Window mockApp;
+  ASSERT_TRUE(mockApp.isReady()) << "Failed to initialize mock Win32 window";
+
+  ::ShowWindow(mockApp.getHwnd(), SW_MINIMIZE);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  EXPECT_TRUE(::IsIconic(mockApp.getHwnd()));
+
+  auto res = ScreenCapture::captureWindow(mockApp.getHwnd(), false);
+  ASSERT_TRUE(res.has_value()) << "Capture of minimized window failed: " << (res ? "" : res.error());
+  EXPECT_GT(res->width, 0);
+  EXPECT_GT(res->height, 0);
+  EXPECT_FALSE(res->pngBytes.empty());
 }
 
 // ── Test 2: Notepad E2E Live GUI Test ─────────────────────────────────────────

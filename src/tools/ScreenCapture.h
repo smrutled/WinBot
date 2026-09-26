@@ -1,6 +1,6 @@
-#ifndef WINBOT_SCREENCAPTURE_H
-#define WINBOT_SCREENCAPTURE_H
-#include "Common.h"
+#ifndef WINBOT_TOOLS_SCREENCAPTURE_H
+#define WINBOT_TOOLS_SCREENCAPTURE_H
+#include "../Common.h"
 #include <vector>
 #include <span>
 
@@ -18,12 +18,17 @@ public:
     // Capture the entire virtual desktop (all monitors)
     [[nodiscard]] static std::expected<CaptureResult, std::string> captureDesktop();
 
-    // Capture a specific window's client area by HWND
-    [[nodiscard]] static std::expected<CaptureResult, std::string> captureWindow(HWND hwnd);
+    // Capture a specific window's client/frame area by HWND.
+    // If bringToFront is true, brings the window to the foreground first.
+    // If bringToFront is false (default), attempts off-screen capture via PrintWindow
+    // so occluded or background windows are captured cleanly without stealing focus,
+    // and automatically falls back to foreground capture if offscreen capture is unsupported.
+    [[nodiscard]] static std::expected<CaptureResult, std::string> captureWindow(
+        HWND hwnd, bool bringToFront = false);
 
     // Capture a specific window by its title substring
     [[nodiscard]] static std::expected<CaptureResult, std::string> captureWindow(
-        std::string_view titleSubstr);
+        std::string_view titleSubstr, bool bringToFront = false);
 
     // Capture a specific region of the screen
     [[nodiscard]] static std::expected<CaptureResult, std::string> captureRegion(RECT region);
@@ -41,6 +46,12 @@ private:
     // Capture given an HDC source and target region
     [[nodiscard]] static std::expected<CaptureResult, std::string> captureHdc(
         HDC srcDc, int x, int y, int w, int h);
+
+    // Off-screen capture via PrintWindow (PW_RENDERFULLCONTENT)
+    [[nodiscard]] static std::expected<CaptureResult, std::string> captureWindowOffscreen(HWND hwnd);
+
+    // Foreground capture via Desktop DC BitBlt
+    [[nodiscard]] static std::expected<CaptureResult, std::string> captureWindowForeground(HWND hwnd);
 };
 
-#endif // WINBOT_SCREENCAPTURE_H
+#endif // WINBOT_TOOLS_SCREENCAPTURE_H

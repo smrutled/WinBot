@@ -4,7 +4,7 @@
 #include "PermissionSystem.h"
 #include "UIAutomationScanner.h"
 #include "UIADebugger.h"
-#include "ScreenCapture.h"
+#include "tools/ScreenCapture.h"
 #include "ToolRegistry.h"
 #include "BrowserAutomation.h"
 #include "ToolServer.h"

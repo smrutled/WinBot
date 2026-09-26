@@ -7,6 +7,7 @@
 #include <regex>
 
 #include "ScreenCapture.h"
+#include "WindowTools.h"
 #include <vector>
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -90,40 +91,155 @@ ScreenCapture::captureDesktop() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-std::expected<ScreenCapture::CaptureResult, std::string>
-ScreenCapture::captureWindow(HWND hwnd) {
-    if (!::IsWindow(hwnd)) return std::unexpected("Invalid HWND");
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 0x00000002
+#endif
 
-    // Check if the window is minimized
-    if (::IsIconic(hwnd)) {
-        return std::unexpected("Window is minimized; cannot capture its contents.");
+static bool isAllBlank(std::span<const uint8_t> bgra, int width, int height) {
+    if (bgra.empty() || width <= 0 || height <= 0) return true;
+    const uint32_t* p = reinterpret_cast<const uint32_t*>(bgra.data());
+    size_t count = static_cast<size_t>(width * height);
+    size_t step = std::max<size_t>(1, count / 500);
+    for (size_t i = 0; i < count; i += step) {
+        if ((p[i] & 0x00FFFFFF) != 0) return false;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if ((p[i] & 0x00FFFFFF) != 0) return false;
+    }
+    return true;
+}
+
+std::expected<ScreenCapture::CaptureResult, std::string>
+ScreenCapture::captureWindowOffscreen(HWND hwnd) {
+    RECT winRect{};
+    if (!::GetWindowRect(hwnd, &winRect)) {
+        return std::unexpected("GetWindowRect failed");
     }
 
-    // Use DWM attribute to get the actual visual bounds (excluding drop shadows)
+    int ww = winRect.right - winRect.left;
+    int wh = winRect.bottom - winRect.top;
+    if (ww <= 0 || wh <= 0) {
+        return std::unexpected("Invalid window dimensions");
+    }
+
+    HDC screenDc = ::GetDC(nullptr);
+    if (!screenDc) return std::unexpected("Failed to get screen DC");
+
+    HDC memDc = ::CreateCompatibleDC(screenDc);
+    HBITMAP bmp = ::CreateCompatibleBitmap(screenDc, ww, wh);
+    HBITMAP oldBmp = reinterpret_cast<HBITMAP>(::SelectObject(memDc, bmp));
+
+    BOOL pwOk = ::PrintWindow(hwnd, memDc, PW_RENDERFULLCONTENT);
+
+    RECT frameRect{};
+    HRESULT hr = ::DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &frameRect, sizeof(frameRect));
+
+    int finalW = ww;
+    int finalH = wh;
+    HDC captureDc = memDc;
+    HBITMAP cropBmp = nullptr;
+    HBITMAP cropOld = nullptr;
+    HDC cropDc = nullptr;
+
+    if (SUCCEEDED(hr)) {
+        int fw = frameRect.right - frameRect.left;
+        int fh = frameRect.bottom - frameRect.top;
+        int ox = frameRect.left - winRect.left;
+        int oy = frameRect.top - winRect.top;
+        if (ox >= 0 && oy >= 0 && fw > 0 && fh > 0 && (ox + fw) <= ww && (oy + fh) <= wh) {
+            cropDc = ::CreateCompatibleDC(screenDc);
+            cropBmp = ::CreateCompatibleBitmap(screenDc, fw, fh);
+            cropOld = reinterpret_cast<HBITMAP>(::SelectObject(cropDc, cropBmp));
+            ::BitBlt(cropDc, 0, 0, fw, fh, memDc, ox, oy, SRCCOPY);
+            captureDc = cropDc;
+            finalW = fw;
+            finalH = fh;
+        }
+    }
+
+    BITMAPINFOHEADER bi{};
+    bi.biSize = sizeof(bi);
+    bi.biWidth = finalW;
+    bi.biHeight = -finalH; // top-down
+    bi.biPlanes = 1;
+    bi.biBitCount = 32;
+    bi.biCompression = BI_RGB;
+
+    std::vector<uint8_t> pixels(static_cast<size_t>(finalW * finalH * 4));
+    HBITMAP activeBmp = (cropBmp ? cropBmp : bmp);
+    ::GetDIBits(captureDc, activeBmp, 0, finalH, pixels.data(),
+                reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
+
+    if (cropDc) {
+        ::SelectObject(cropDc, cropOld);
+        ::DeleteObject(cropBmp);
+        ::DeleteDC(cropDc);
+    }
+    ::SelectObject(memDc, oldBmp);
+    ::DeleteObject(bmp);
+    ::DeleteDC(memDc);
+    ::ReleaseDC(nullptr, screenDc);
+
+    if (!pwOk || isAllBlank(pixels, finalW, finalH)) {
+        return std::unexpected("Offscreen render failed or produced empty image");
+    }
+
+    auto pngResult = encodePng(pixels, finalW, finalH);
+    if (!pngResult) return std::unexpected(pngResult.error());
+
+    return CaptureResult{ std::move(*pngResult), finalW, finalH };
+}
+
+std::expected<ScreenCapture::CaptureResult, std::string>
+ScreenCapture::captureWindowForeground(HWND hwnd) {
+    tools::bringWindowToForeground(hwnd);
+
     RECT rect{};
     HRESULT hr = ::DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &rect, sizeof(rect));
     if (FAILED(hr)) {
-        // Fallback to standard window rect if DWM fails
         ::GetWindowRect(hwnd, &rect);
     }
 
     int w = rect.right - rect.left;
     int h = rect.bottom - rect.top;
-
     if (w <= 0 || h <= 0) return std::unexpected("Invalid window dimensions");
 
-    // Capture from the Desktop DC is more reliable for hardware-accelerated windows
     HDC desktopDc = ::GetDC(nullptr);
     auto result = captureHdc(desktopDc, rect.left, rect.top, w, h);
     ::ReleaseDC(nullptr, desktopDc);
-
     return result;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+std::expected<ScreenCapture::CaptureResult, std::string>
+ScreenCapture::captureWindow(HWND hwnd, bool bringToFront) {
+    if (!::IsWindow(hwnd)) return std::unexpected("Invalid HWND");
+
+    if (bringToFront) {
+        return captureWindowForeground(hwnd);
+    }
+
+    // If minimized, restore without activating so the window has a rendering surface
+    if (::IsIconic(hwnd)) {
+        ::ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        ::Sleep(50);
+    }
+
+    // Try off-screen capture first so occluded or background windows
+    // are captured directly without other windows covering them and without stealing focus.
+    auto offscreen = captureWindowOffscreen(hwnd);
+    if (offscreen) {
+        return offscreen;
+    }
+
+    // Fallback: bring window to foreground and capture via desktop DC
+    return captureWindowForeground(hwnd);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Scored window lookup: exact > starts-with > contains (all case-insensitive).
 std::expected<ScreenCapture::CaptureResult, std::string>
-ScreenCapture::captureWindow(std::string_view titleSubstr) {
+ScreenCapture::captureWindow(std::string_view titleSubstr, bool bringToFront) {
     // Build lowercase wide query
     std::wstring wq = utf8_to_wide(titleSubstr);
     to_lower_inplace(wq);
@@ -155,7 +271,7 @@ ScreenCapture::captureWindow(std::string_view titleSubstr) {
 
     if (!best.hwnd)
         return std::unexpected(std::format("Window '{}' not found", titleSubstr));
-    return captureWindow(best.hwnd);
+    return captureWindow(best.hwnd, bringToFront);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

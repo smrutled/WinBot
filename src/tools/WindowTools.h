@@ -15,6 +15,9 @@ ToolResult killProcess(std::string_view nameOrPid);
 ToolResult getSystemInfo();
 ToolResult getCursorPosition();
 
+// Window focus helper
+void bringWindowToForeground(HWND hwnd);
+
 } // namespace tools
 
 #endif // WINBOT_TOOLS_WINDOWTOOLS_H

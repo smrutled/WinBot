@@ -182,15 +182,24 @@ void ToolServer::registerBuiltinTools() {
       {"screenshot_window",
        "Capture a specific window by title substring (case-insensitive, "
        "partial match OK). "
-       "Uses UI Automation to locate the window so casing doesn't matter.",
+       "Uses UI Automation to locate the window so casing doesn't matter. "
+       "Captures the target window cleanly even if occluded or in the background. "
+       "Set optional 'bring_to_front' to true to bring the window to the foreground first.",
        {{"type", "object"},
         {"properties",
          {{"title",
            {{"type", "string"},
-            {"description", "Window title substring (case-insensitive)"}}}}},
+            {"description", "Window title substring (case-insensitive)"}}},
+          {"bring_to_front",
+           {{"type", "boolean"},
+            {"description",
+             "Optional: bring the window to the foreground before capturing "
+             "(default: false; captures in background without occlusions and "
+             "falls back to foreground if offscreen capture is unsupported)"}}}}},
         {"required", {"title"}}},
        [this](const json &args) -> ToolResult {
          std::string title = args.value("title", "");
+         bool bringToFront = args.value("bring_to_front", false);
          // Use UIA scanWindow for fuzzy case-insensitive HWND lookup
          auto tree = m_uia.scanWindow(title);
          if (!tree)
@@ -199,7 +208,7 @@ void ToolServer::registerBuiltinTools() {
          if (!hwnd)
            return err(
                std::format("Found UIA element for '{}' but no HWND", title));
-         auto r = ScreenCapture::captureWindow(hwnd);
+         auto r = ScreenCapture::captureWindow(hwnd, bringToFront);
          if (!r)
            return err(r.error());
          json result = {{"width", r->width},
