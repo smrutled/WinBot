@@ -190,5 +190,5 @@ On startup, WinBot will read or generate `config.json` inside its execution dire
 - **stb**: Image encoding.
 - **SQLite 3**: Persistent local database.
 - **Lua 5.4 & LuaBridge3**: Embedded scripting engine.
-- **Windows SDK**: Win32, UIAutomationCore, dwmapi, sapi.
+- **Windows SDK**: Win32, UIAutomationCore, dwmapi.
 

@@ -37,8 +37,5 @@
       "iex "
     ]
   },
-  "scheduled_tasks": [],
-  "voice_input": false,
-  "voice_output": false,
-  "wake_word": "hey winbot"
+  "scheduled_tasks": []
 }

@@ -1,9 +1,6 @@
 {
   "kill_hotkey": "Ctrl+Alt+X",
   "action_delay_ms": 200,
-  "voice_input": false,
-  "voice_output": false,
-  "wake_word": "hey winbot",
   "browser_cdp_port": 9222,
   "browser_exe": "",
   "mcp_servers": [],

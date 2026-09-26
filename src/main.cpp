@@ -6,7 +6,6 @@
 #include "UIADebugger.h"
 #include "ScreenCapture.h"
 #include "Memory.h"
-#include "VoiceIO.h"
 #include "ToolRegistry.h"
 #include "BrowserAutomation.h"
 #include "ToolServer.h"
@@ -25,9 +24,6 @@ static json loadConfig(const std::filesystem::path& path) {
         json def = {
             {"kill_hotkey",        "Ctrl+Alt+X"},
             {"action_delay_ms",    200},
-            {"voice_input",        false},
-            {"voice_output",       false},
-            {"wake_word",          "hey winbot"},
             {"browser_cdp_port",   9222},
             {"browser_exe",        ""},
             {"mcp_servers",        json::array()},
@@ -194,13 +190,6 @@ int main(int argc, char* argv[]) {
     Memory              memory{ exeDir / "data" / "memory.db" };
     SiteProfileRegistry siteProfiles{ exeDir / cfg.value("site_profiles_dir", "data/site_profiles") };
 
-    // In MCP mode, never enable voice — no console for audio I/O
-    VoiceIO voice{{
-        .enableInput  = g_mcpMode ? false : cfg.value("voice_input",  false),
-        .enableOutput = g_mcpMode ? false : cfg.value("voice_output", false),
-        .wakeWord     = cfg.value("wake_word",    "hey winbot")
-    }};
-
     BrowserAutomation browser{
         cfg.value("browser_cdp_port", 9222),
         cfg.value("browser_exe",      "")
@@ -217,26 +206,6 @@ int main(int argc, char* argv[]) {
         },
         tools, uia, capture, browser, perms, auditLog, memory, siteProfiles, luaRuntime
     };
-
-    // ── Optional voice listener thread ────────────────────────────────────────
-    // When voice is enabled, spoken commands are forwarded as special "voice"
-    // tool-call log entries so the external agent can react to them.
-    std::jthread voiceThread;
-    if (voice.inputEnabled()) {
-        voiceThread = std::jthread([&](std::stop_token st) {
-            while (!st.stop_requested() && !KillSwitch::isTriggered()) {
-                std::string cmd = voice.listenForCommand();
-                if (!cmd.empty()) {
-                    WINBOT_INFO("Voice command received: {}", cmd);
-                    auditLog.note(std::format("Voice: {}", cmd));
-                    // Emit a special notification line on stdout so the agent
-                    // can pick it up asynchronously.
-                    std::cout << json{{"event","voice"},{"text",cmd}}.dump() << '\n';
-                    std::cout.flush();
-                }
-            }
-        });
-    }
 
     // ── Run ───────────────────────────────────────────────────────────────────
     auditLog.note("=== WinBot session started ===");
