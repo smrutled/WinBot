@@ -1,7 +1,7 @@
 #pragma once
 
 #include <gtest/gtest.h>
-#include "UIAutomationScanner.h"
+#include "platform/uia/UIAutomationScanner.h"
 #include <objbase.h>
 #include <string>
 #include <vector>

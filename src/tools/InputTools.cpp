@@ -1,4 +1,6 @@
-#include "InputTools.h"
+#include "tools/InputTools.h"
+#include "platform/uia/UIHandle.h"
+#include "platform/browser/BrowserAutomation.h"
 #include <algorithm>
 #include <cctype>
 #include <unordered_map>
@@ -241,3 +243,150 @@ ToolResult typeText(std::string_view text) {
 }
 
 } // namespace tools
+
+struct AutoHookUIHandleInput {
+    AutoHookUIHandleInput() {
+        UIHandle::setInputHandlers(
+            [](int x, int y, std::string_view button, bool human) {
+                return tools::click(x, y, button, human);
+            },
+            [](std::string_view text) {
+                return tools::typeText(text);
+            },
+            [](std::string_view combo) {
+                return tools::keyPress(combo);
+            }
+        );
+        BrowserAutomation::setMouseMoveHandler(
+            [](int x, int y) {
+                (void)tools::humanMouseMove(x, y);
+            }
+        );
+    }
+};
+static AutoHookUIHandleInput s_autoHookUIHandleInput;
+
+// ── ClickTool ────────────────────────────────────────────────────────────────
+json ClickTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"x", {{"type", "integer"}, {"description", "Screen X coordinate"}}},
+            {"y", {{"type", "integer"}, {"description", "Screen Y coordinate"}}},
+            {"button", {{"type", "string"}, {"description", "left|right|middle"}, {"default", "left"}}}
+        }},
+        {"required", {"x", "y"}}
+    };
+}
+
+ToolResult ClickTool::execute(const json& args) {
+    return tools::click(args.value("x", 0), args.value("y", 0), args.value("button", "left"));
+}
+
+// ── DoubleClickTool ──────────────────────────────────────────────────────────
+json DoubleClickTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"x", {{"type", "integer"}}},
+            {"y", {{"type", "integer"}}}
+        }},
+        {"required", {"x", "y"}}
+    };
+}
+
+ToolResult DoubleClickTool::execute(const json& args) {
+    return tools::doubleClick(args.value("x", 0), args.value("y", 0));
+}
+
+// ── MouseDragTool ────────────────────────────────────────────────────────────
+json MouseDragTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"x1", {{"type", "integer"}}},
+            {"y1", {{"type", "integer"}}},
+            {"x2", {{"type", "integer"}}},
+            {"y2", {{"type", "integer"}}}
+        }},
+        {"required", {"x1", "y1", "x2", "y2"}}
+    };
+}
+
+ToolResult MouseDragTool::execute(const json& args) {
+    return tools::drag(args.value("x1", 0), args.value("y1", 0), args.value("x2", 0), args.value("y2", 0));
+}
+
+// ── ScrollTool ───────────────────────────────────────────────────────────────
+json ScrollTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"x", {{"type", "integer"}}},
+            {"y", {{"type", "integer"}}},
+            {"delta", {{"type", "integer"}, {"description", "Positive=up, negative=down"}}}
+        }},
+        {"required", {"x", "y", "delta"}}
+    };
+}
+
+ToolResult ScrollTool::execute(const json& args) {
+    return tools::scroll(args.value("x", 0), args.value("y", 0), args.value("delta", -3));
+}
+
+// ── TypeTool ─────────────────────────────────────────────────────────────────
+json TypeTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"text", {{"type", "string"}, {"description", "Text to type"}}}
+        }},
+        {"required", {"text"}}
+    };
+}
+
+ToolResult TypeTool::execute(const json& args) {
+    return tools::typeText(args.value("text", ""));
+}
+
+// ── KeyTool ──────────────────────────────────────────────────────────────────
+json KeyTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"combo", {{"type", "string"}, {"description", "e.g. Ctrl+C, Enter, F5"}}}
+        }},
+        {"required", {"combo"}}
+    };
+}
+
+ToolResult KeyTool::execute(const json& args) {
+    return tools::keyPress(args.value("combo", "Enter"));
+}
+
+// ── HumanMoveTool ────────────────────────────────────────────────────────────
+json HumanMoveTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"x", {{"type", "integer"}, {"description", "Screen X coordinate"}}},
+            {"y", {{"type", "integer"}, {"description", "Screen Y coordinate"}}}
+        }},
+        {"required", {"x", "y"}}
+    };
+}
+
+ToolResult HumanMoveTool::execute(const json& args) {
+    return tools::humanMouseMove(args.value("x", 0), args.value("y", 0));
+}
+
+// ── Self-Registration ────────────────────────────────────────────────────────
+REGISTER_TOOL(ClickTool);
+REGISTER_TOOL(DoubleClickTool);
+REGISTER_TOOL(MouseDragTool);
+REGISTER_TOOL(ScrollTool);
+REGISTER_TOOL(TypeTool);
+REGISTER_TOOL(KeyTool);
+REGISTER_TOOL(HumanMoveTool);
+
+void initInputTools() {}

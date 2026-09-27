@@ -1,4 +1,4 @@
-#include "ShellTools.h"
+#include "tools/ShellTools.h"
 #include <winhttp.h>
 #include <array>
 #include <sstream>
@@ -156,3 +156,68 @@ ToolResult searchWeb(std::string_view query) {
 }
 
 } // namespace tools
+
+#include "security/PermissionSystem.h"
+
+// ── RunCommandTool ───────────────────────────────────────────────────────────
+json RunCommandTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"cmd", {{"type", "string"}, {"description", "Command to execute"}}},
+            {"shell", {{"type", "string"}, {"description", "Shell to use: cmd|powershell|pwsh"}, {"default", "cmd"}}},
+            {"timeout_ms", {{"type", "integer"}, {"default", 30000}}}
+        }},
+        {"required", {"cmd"}}
+    };
+}
+
+ToolResult RunCommandTool::execute(const json& args) {
+    auto cmd = args.value("cmd", "");
+    auto shell = args.value("shell", "cmd");
+    if (m_perms) {
+        auto check = m_perms->checkShellCommand(cmd);
+        if (!check) return check;
+    }
+    return tools::runCommand(cmd, shell, args.value("timeout_ms", 30000));
+}
+
+// ── HttpGetTool ──────────────────────────────────────────────────────────────
+json HttpGetTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"url", {{"type", "string"}}},
+            {"headers", {{"type", "string"}, {"default", ""}}}
+        }},
+        {"required", {"url"}}
+    };
+}
+
+ToolResult HttpGetTool::execute(const json& args) {
+    return tools::httpGet(args.value("url", ""), args.value("headers", ""));
+}
+
+// ── SearchWebTool ────────────────────────────────────────────────────────────
+json SearchWebTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"query", {{"type", "string"}}}
+        }},
+        {"required", {"query"}}
+    };
+}
+
+ToolResult SearchWebTool::execute(const json& args) {
+    return tools::searchWeb(args.value("query", ""));
+}
+
+// ── Self-Registration ────────────────────────────────────────────────────────
+REGISTER_TOOL_WITH_DEPS(RunCommandTool, [](const ToolDependencies& d) {
+    return std::make_unique<RunCommandTool>(d.perms);
+});
+REGISTER_TOOL(HttpGetTool);
+REGISTER_TOOL(SearchWebTool);
+
+void initShellTools() {}

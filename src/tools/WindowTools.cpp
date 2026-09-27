@@ -1,4 +1,4 @@
-#include "WindowTools.h"
+#include "tools/WindowTools.h"
 #include <tlhelp32.h>
 #include <psapi.h>
 #include <pdh.h>
@@ -214,3 +214,110 @@ ToolResult getCursorPosition() {
 }
 
 } // namespace tools
+
+#include "security/PermissionSystem.h"
+
+// ── WindowListTool ───────────────────────────────────────────────────────────
+ToolResult WindowListTool::execute(const json&) {
+    return tools::getWindowList();
+}
+
+// ── FocusWindowTool ──────────────────────────────────────────────────────────
+json FocusWindowTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"title", {{"type", "string"}, {"description", "Window title substring"}}}
+        }},
+        {"required", {"title"}}
+    };
+}
+
+ToolResult FocusWindowTool::execute(const json& args) {
+    return tools::focusWindow(args.value("title", ""));
+}
+
+// ── CloseWindowTool ──────────────────────────────────────────────────────────
+json CloseWindowTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"title", {{"type", "string"}}}
+        }},
+        {"required", {"title"}}
+    };
+}
+
+ToolResult CloseWindowTool::execute(const json& args) {
+    return tools::closeWindow(args.value("title", ""));
+}
+
+// ── GetClipboardTool ─────────────────────────────────────────────────────────
+ToolResult GetClipboardTool::execute(const json&) {
+    return tools::getClipboard();
+}
+
+// ── SetClipboardTool ─────────────────────────────────────────────────────────
+json SetClipboardTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"text", {{"type", "string"}}}
+        }},
+        {"required", {"text"}}
+    };
+}
+
+ToolResult SetClipboardTool::execute(const json& args) {
+    return tools::setClipboard(args.value("text", ""));
+}
+
+// ── GetProcessesTool ─────────────────────────────────────────────────────────
+ToolResult GetProcessesTool::execute(const json&) {
+    return tools::getProcesses();
+}
+
+// ── KillProcessTool ──────────────────────────────────────────────────────────
+json KillProcessTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"name_or_pid", {{"type", "string"}}}
+        }},
+        {"required", {"name_or_pid"}}
+    };
+}
+
+ToolResult KillProcessTool::execute(const json& args) {
+    auto nameOrPid = args.value("name_or_pid", "");
+    if (m_perms) {
+        auto check = m_perms->checkProcess(nameOrPid);
+        if (!check) return check;
+    }
+    return tools::killProcess(nameOrPid);
+}
+
+// ── GetSystemInfoTool ────────────────────────────────────────────────────────
+ToolResult GetSystemInfoTool::execute(const json&) {
+    return tools::getSystemInfo();
+}
+
+// ── GetCursorPositionTool ────────────────────────────────────────────────────
+ToolResult GetCursorPositionTool::execute(const json&) {
+    return tools::getCursorPosition();
+}
+
+// ── Self-Registration ────────────────────────────────────────────────────────
+REGISTER_TOOL(WindowListTool);
+REGISTER_TOOL(FocusWindowTool);
+REGISTER_TOOL(CloseWindowTool);
+REGISTER_TOOL(GetClipboardTool);
+REGISTER_TOOL(SetClipboardTool);
+REGISTER_TOOL(GetProcessesTool);
+REGISTER_TOOL_WITH_DEPS(KillProcessTool, [](const ToolDependencies& d) {
+    return std::make_unique<KillProcessTool>(d.perms);
+});
+REGISTER_TOOL(GetSystemInfoTool);
+REGISTER_TOOL(GetCursorPositionTool);
+
+void initWindowTools() {}

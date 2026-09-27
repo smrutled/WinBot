@@ -67,17 +67,53 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(luabridge)
 
-# ── Source files & WinBot_Core ────────────────────────────────────────────────
-file(GLOB_RECURSE WINBOT_CORE_SOURCES
-    "src/*.cpp"
+# ── Source groupings ──────────────────────────────────────────────────────────
+set(CORE_SOURCES
+    src/core/ToolRegistry.cpp
+    src/core/ToolServer.cpp
+    src/core/McpServer.cpp
 )
-list(FILTER WINBOT_CORE_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
 
-add_library(WinBot_Core STATIC ${WINBOT_CORE_SOURCES})
+set(SECURITY_SOURCES
+    src/security/AuditLog.cpp
+    src/security/KillSwitch.cpp
+    src/security/PermissionSystem.cpp
+)
+
+set(PLATFORM_SOURCES
+    src/platform/uia/UIAutomationScanner.cpp
+    src/platform/uia/UIHandle.cpp
+    src/platform/uia/UIADebugger.cpp
+    src/platform/screen/ScreenCapture.cpp
+    src/platform/browser/BrowserAutomation.cpp
+)
+
+set(SERVICES_SOURCES
+    src/services/LuaRuntime.cpp
+    src/services/Scheduler.cpp
+    src/services/SiteProfileRegistry.cpp
+)
+
+set(TOOL_SOURCES
+    src/tools/BrowserTools.cpp
+    src/tools/BuiltinTools.cpp
+    src/tools/FileTools.cpp
+    src/tools/InputTools.cpp
+    src/tools/ScreenTools.cpp
+    src/tools/ShellTools.cpp
+    src/tools/WindowTools.cpp
+)
+
+add_library(WinBot_Core STATIC
+    ${CORE_SOURCES}
+    ${SECURITY_SOURCES}
+    ${PLATFORM_SOURCES}
+    ${SERVICES_SOURCES}
+    ${TOOL_SOURCES}
+)
 
 target_include_directories(WinBot_Core PUBLIC
-    src
-    src/tools
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
     third_party
     ${stb_SOURCE_DIR}
     ${luabridge_SOURCE_DIR}/Source
@@ -114,6 +150,9 @@ if(MSVC)
         /W4
         /std:c++latest
     )
+    target_link_options(WinBot PRIVATE
+        "/WHOLEARCHIVE:WinBot_Core"
+    )
 endif()
 
 # ── Output directory ──────────────────────────────────────────────────────────
@@ -144,9 +183,8 @@ if(BUILD_TESTING)
 
     add_executable(WinBot_Tests ${TEST_SOURCES})
     target_include_directories(WinBot_Tests PRIVATE
-        src
-        src/tools
-        tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests
     )
     target_link_libraries(WinBot_Tests PRIVATE
         WinBot_Core
@@ -158,6 +196,9 @@ if(BUILD_TESTING)
         target_compile_options(WinBot_Tests PRIVATE
             /W4
             /std:c++latest
+        )
+        target_link_options(WinBot_Tests PRIVATE
+            "/WHOLEARCHIVE:WinBot_Core"
         )
     endif()
 

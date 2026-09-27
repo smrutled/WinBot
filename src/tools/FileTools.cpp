@@ -1,7 +1,10 @@
-#include "FileTools.h"
+#include "tools/FileTools.h"
+#include "security/PermissionSystem.h"
+
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <format>
 
 namespace tools {
 
@@ -68,3 +71,137 @@ ToolResult copyFile(std::string_view src, std::string_view dst) {
 }
 
 } // namespace tools
+
+// ── ReadFileTool ─────────────────────────────────────────────────────────────
+json ReadFileTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"path", {{"type", "string"}, {"description", "Absolute or relative file path"}}}
+        }},
+        {"required", {"path"}}
+    };
+}
+
+ToolResult ReadFileTool::execute(const json& args) {
+    auto path = args.value("path", "");
+    if (m_perms) {
+        auto check = m_perms->checkPath(path);
+        if (!check) return check;
+    }
+    return tools::readFile(path);
+}
+
+// ── WriteFileTool ────────────────────────────────────────────────────────────
+json WriteFileTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"path",    {{"type", "string"}}},
+            {"content", {{"type", "string"}}}
+        }},
+        {"required", {"path", "content"}}
+    };
+}
+
+ToolResult WriteFileTool::execute(const json& args) {
+    auto path = args.value("path", "");
+    if (m_perms) {
+        auto check = m_perms->checkPath(path);
+        if (!check) return check;
+    }
+    return tools::writeFile(path, args.value("content", ""));
+}
+
+// ── AppendFileTool ───────────────────────────────────────────────────────────
+json AppendFileTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"path",    {{"type", "string"}}},
+            {"content", {{"type", "string"}}}
+        }},
+        {"required", {"path", "content"}}
+    };
+}
+
+ToolResult AppendFileTool::execute(const json& args) {
+    auto path = args.value("path", "");
+    if (m_perms) {
+        auto check = m_perms->checkPath(path);
+        if (!check) return check;
+    }
+    return tools::appendFile(path, args.value("content", ""));
+}
+
+// ── ListDirectoryTool ────────────────────────────────────────────────────────
+json ListDirectoryTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"path", {{"type", "string"}}}
+        }},
+        {"required", {"path"}}
+    };
+}
+
+ToolResult ListDirectoryTool::execute(const json& args) {
+    return tools::listDirectory(args.value("path", "."));
+}
+
+// ── DeleteFileTool ───────────────────────────────────────────────────────────
+json DeleteFileTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {{"path", {{"type", "string"}}}}},
+        {"required", {"path"}}
+    };
+}
+
+ToolResult DeleteFileTool::execute(const json& args) {
+    auto path = args.value("path", "");
+    if (m_perms) {
+        auto check = m_perms->checkPath(path);
+        if (!check) return check;
+    }
+
+    auto confirm = PermissionSystem::promptUser(
+        std::format("Delete file '{}'?", path));
+    if (!confirm) return confirm;
+
+    return tools::deleteFile(path);
+}
+
+// ── CopyFileTool ─────────────────────────────────────────────────────────────
+json CopyFileTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"src", {{"type", "string"}}},
+            {"dst", {{"type", "string"}}}
+        }},
+        {"required", {"src", "dst"}}
+    };
+}
+
+ToolResult CopyFileTool::execute(const json& args) {
+    return tools::copyFile(args.value("src", ""), args.value("dst", ""));
+}
+
+// ── Self-Registration ────────────────────────────────────────────────────────
+REGISTER_TOOL_WITH_DEPS(ReadFileTool, [](const ToolDependencies& d) {
+    return std::make_unique<ReadFileTool>(d.perms);
+});
+REGISTER_TOOL_WITH_DEPS(WriteFileTool, [](const ToolDependencies& d) {
+    return std::make_unique<WriteFileTool>(d.perms);
+});
+REGISTER_TOOL_WITH_DEPS(AppendFileTool, [](const ToolDependencies& d) {
+    return std::make_unique<AppendFileTool>(d.perms);
+});
+REGISTER_TOOL(ListDirectoryTool);
+REGISTER_TOOL_WITH_DEPS(DeleteFileTool, [](const ToolDependencies& d) {
+    return std::make_unique<DeleteFileTool>(d.perms);
+});
+REGISTER_TOOL(CopyFileTool);
+
+void initFileTools() {}
