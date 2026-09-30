@@ -28,6 +28,7 @@ public:
 private:
     std::filesystem::path m_path;
     std::mutex            m_mutex;
+    bool                  m_enabled{ true }; // false if the log dir couldn't be created
 };
 
 #endif // WINBOT_AUDITLOG_H

@@ -204,3 +204,11 @@ TEST(UIAutomationScannerTest, LiveScannerInitialization) {
         std::print("Live scanner desktop note: {}\n", res.error());
     }
 }
+
+TEST(UIAutomationScannerTest, InvokeElementRejectsEmptyRuntimeId) {
+    UIAutomationScanner scanner;
+    auto res = scanner.invokeElement({});
+    EXPECT_FALSE(res.has_value());
+    EXPECT_TRUE(res.error().find("RuntimeId is empty") != std::string::npos);
+}
+

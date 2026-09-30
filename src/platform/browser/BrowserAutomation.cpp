@@ -104,6 +104,8 @@ bool BrowserAutomation::connectToPage() {
         return false;
     }
 
+    if (!m_session) return false;
+
     HINTERNET conn = ::WinHttpConnect(
         reinterpret_cast<HINTERNET>(m_session),
         L"localhost",
@@ -147,7 +149,11 @@ bool BrowserAutomation::wsSend(std::string_view message) {
         const_cast<void*>(reinterpret_cast<const void*>(message.data())),
         static_cast<DWORD>(message.size())
     );
-    return (err == ERROR_SUCCESS);
+    if (err != ERROR_SUCCESS) {
+        m_connected = false;
+        return false;
+    }
+    return true;
 }
 
 std::expected<std::string, std::string> BrowserAutomation::wsReceive(int /*timeoutMs*/) {
@@ -165,7 +171,11 @@ std::expected<std::string, std::string> BrowserAutomation::wsReceive(int /*timeo
         &bytesRead,
         &bufType
     );
-    if (err != ERROR_SUCCESS) return std::unexpected(std::format("wsReceive error: {}", err));
+    if (err != ERROR_SUCCESS) {
+        m_connected = false;
+        return std::unexpected(std::format("wsReceive error: {}", err));
+    }
+    if (bytesRead > response.size()) bytesRead = static_cast<DWORD>(response.size());
     response.resize(bytesRead);
     return response;
 }

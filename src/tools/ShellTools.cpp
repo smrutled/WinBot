@@ -9,6 +9,8 @@ namespace tools {
 
 // ── run_command ───────────────────────────────────────────────────────────────
 ToolResult runCommand(std::string_view cmd, std::string_view shell, int timeoutMs) {
+    // Clamp: a negative timeout would become a ~49-day wait after the DWORD cast.
+    if (timeoutMs < 0) timeoutMs = 30000;
     std::string fullCmd;
     if (shell == "powershell") {
         fullCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command " + std::string(cmd) + " 2>&1";
@@ -44,21 +46,74 @@ ToolResult runCommand(std::string_view cmd, std::string_view shell, int timeoutM
 
     ::CloseHandle(hWritePipe); // Close our copy of write end
 
-    // Read output
+    // Wait for the process in small slices while draining the pipe, so
+    // timeoutMs is honored even when the child never closes stdout
+    // (the old code read-until-EOF *before* waiting, which made the timeout
+    // useless for commands like `ping -t` and wedged the whole MCP session —
+    // there is no cancellation support to recover from that).
+    constexpr size_t kMaxOutputBytes = 4u * 1024u * 1024u; // 4 MiB cap
+    constexpr DWORD kSliceMs = 100;
     std::string output;
     std::array<char, 4096> buf{};
-    DWORD bytesRead = 0;
-    while (::ReadFile(hReadPipe, buf.data(), static_cast<DWORD>(buf.size() - 1), &bytesRead, nullptr) && bytesRead > 0) {
-        output.append(buf.data(), bytesRead);
+    bool truncated = false;
+
+    auto drainPipe = [&]() {
+        // PeekNamedPipe guard: never block here, and don't hang if a
+        // grandchild inherited the pipe handle.
+        for (;;) {
+            DWORD avail = 0;
+            if (!::PeekNamedPipe(hReadPipe, nullptr, 0, nullptr, &avail, nullptr) || avail == 0)
+                break;
+            DWORD toRead = (std::min)(avail, static_cast<DWORD>(buf.size() - 1));
+            DWORD bytesRead = 0;
+            if (!::ReadFile(hReadPipe, buf.data(), toRead, &bytesRead, nullptr) || bytesRead == 0)
+                break;
+            if (output.size() < kMaxOutputBytes) {
+                size_t room = kMaxOutputBytes - output.size();
+                size_t take = (std::min)(static_cast<size_t>(bytesRead), room);
+                output.append(buf.data(), take);
+                if (take < bytesRead) truncated = true;
+            } else {
+                truncated = true;
+            }
+        }
+    };
+
+    const ULONGLONG deadline = ::GetTickCount64() + static_cast<ULONGLONG>(timeoutMs);
+    bool finished = false;
+    bool timedOut = false;
+    while (!finished) {
+        ULONGLONG now = ::GetTickCount64();
+        DWORD slice = (deadline > now)
+            ? static_cast<DWORD>((std::min)(deadline - now, static_cast<ULONGLONG>(kSliceMs)))
+            : 0;
+        DWORD wr = ::WaitForSingleObject(pi.hProcess, slice);
+        drainPipe();
+        if (wr == WAIT_OBJECT_0) {
+            finished = true;
+        } else if (::GetTickCount64() >= deadline) {
+            timedOut = true;
+            finished = true;
+        }
     }
 
-    ::WaitForSingleObject(pi.hProcess, static_cast<DWORD>(timeoutMs));
+    if (timedOut) {
+        ::TerminateProcess(pi.hProcess, 1); // don't leave it orphaned
+        ::WaitForSingleObject(pi.hProcess, 5000);
+        drainPipe(); // collect anything flushed on death
+    }
+
     DWORD exitCode = 0;
     ::GetExitCodeProcess(pi.hProcess, &exitCode);
     ::CloseHandle(pi.hProcess);
     ::CloseHandle(pi.hThread);
     ::CloseHandle(hReadPipe);
 
+    if (truncated) output += "\n[WinBot: output truncated at 4 MiB]";
+    if (timedOut) {
+        return err(std::format("Command timed out after {} ms (process terminated)\n{}",
+                               timeoutMs, output.empty() ? "(no output)" : output));
+    }
     if (exitCode != 0) {
         // Non-zero exit doesn't mean failure — return output + exit code
         return ok(std::format("Exit {}\n{}", exitCode, output));

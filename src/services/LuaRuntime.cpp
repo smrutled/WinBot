@@ -25,64 +25,80 @@ LuaRuntime::~LuaRuntime() {
 }
 
 ToolResult LuaRuntime::execString(std::string_view code) {
-    if (luaL_dostring(L, std::string(code).c_str()) != LUA_OK) {
-        std::string errMsg = lua_tostring(L, -1);
-        lua_pop(L, 1);
-        return err(errMsg);
+    if (!L) return err("Lua state is null");
+    try {
+        if (luaL_dostring(L, std::string(code).c_str()) != LUA_OK) {
+            std::string errMsg = lua_isstring(L, -1) ? lua_tostring(L, -1) : "Lua execution error";
+            lua_pop(L, 1);
+            return err(errMsg);
+        }
+        
+        // Attempt to return the string value if the script returned something
+        if (lua_isstring(L, -1)) {
+            std::string res = lua_tostring(L, -1);
+            lua_pop(L, 1);
+            return ok(res);
+        }
+        
+        // Clear stack
+        lua_settop(L, 0);
+        return ok("Script executed successfully.");
+    } catch (const std::exception& e) {
+        return err(std::format("Lua runtime error: {}", e.what()));
+    } catch (...) {
+        return err("Lua runtime error: unknown exception");
     }
-    
-    // Attempt to return the string value if the script returned something
-    if (lua_isstring(L, -1)) {
-        std::string res = lua_tostring(L, -1);
-        lua_pop(L, 1);
-        return ok(res);
-    }
-    
-    // Clear stack
-    lua_settop(L, 0);
-    return ok("Script executed successfully.");
 }
 
 ToolResult LuaRuntime::execFile(const std::filesystem::path& path) {
+    if (!L) return err("Lua state is null");
     if (!std::filesystem::exists(path)) {
         return err(std::format("Script file not found: {}", path.string()));
     }
     
-    if (luaL_dofile(L, path.string().c_str()) != LUA_OK) {
-        std::string errMsg = lua_tostring(L, -1);
-        lua_pop(L, 1);
-        return err(errMsg);
+    try {
+        if (luaL_dofile(L, path.string().c_str()) != LUA_OK) {
+            std::string errMsg = lua_isstring(L, -1) ? lua_tostring(L, -1) : "Lua execution error";
+            lua_pop(L, 1);
+            return err(errMsg);
+        }
+        
+        if (lua_isstring(L, -1)) {
+            std::string res = lua_tostring(L, -1);
+            lua_pop(L, 1);
+            return ok(res);
+        }
+        
+        lua_settop(L, 0);
+        return ok(std::format("Script {} executed successfully.", path.filename().string()));
+    } catch (const std::exception& e) {
+        return err(std::format("Lua runtime error: {}", e.what()));
+    } catch (...) {
+        return err("Lua runtime error: unknown exception");
     }
-    
-    if (lua_isstring(L, -1)) {
-        std::string res = lua_tostring(L, -1);
-        lua_pop(L, 1);
-        return ok(res);
-    }
-    
-    lua_settop(L, 0);
-    return ok(std::format("Script {} executed successfully.", path.filename().string()));
 }
 
 void LuaRuntime::bindWinBotAPI() {
     luabridge::getGlobalNamespace(L)
         .beginClass<UIHandle>("UIHandle")
-            .addFunction("click", [](UIHandle* self) { self->click(); })
-            .addFunction("clickChild", [](UIHandle* self, const std::string& name) { self->click(name); })
+            .addFunction("click", [](UIHandle* self) { if (self) self->click(); })
+            .addFunction("clickChild", [](UIHandle* self, const std::string& name) { if (self) self->click(name); })
             .addFunction("select", [](UIHandle* self, const std::string& name, luabridge::LuaRef optType) -> UIHandle {
+                if (!self) throw std::runtime_error("UIHandle is null");
                 std::string typeFilter;
                 if (!optType.isNil() && optType.isString()) typeFilter = optType.tostring();
                 return self->select(name, 2000, typeFilter);
             })
-            .addFunction("type", [](UIHandle* self, const std::string& text) { self->type(text); })
-            .addFunction("key", [](UIHandle* self, const std::string& k) { self->key(k); })
-            .addFunction("name", [](UIHandle* self) -> std::string { return self->element().name; })
-            .addFunction("value", [](UIHandle* self) -> std::string { return self->element().value; })
+            .addFunction("type", [](UIHandle* self, const std::string& text) { if (self) self->type(text); })
+            .addFunction("key", [](UIHandle* self, const std::string& k) { if (self) self->key(k); })
+            .addFunction("name", [](UIHandle* self) -> std::string { return self ? self->element().name : ""; })
+            .addFunction("value", [](UIHandle* self) -> std::string { return self ? self->element().value : ""; })
             .addFunction("text", [](UIHandle* self) -> std::string {
+                if (!self) return "";
                 return self->element().value.empty() ? self->element().name : self->element().value;
             })
-            .addFunction("controlType", [](UIHandle* self) -> std::string { return self->element().controlType; })
-            .addFunction("automationId", [](UIHandle* self) -> std::string { return self->element().automationId; })
+            .addFunction("controlType", [](UIHandle* self) -> std::string { return self ? self->element().controlType : ""; })
+            .addFunction("automationId", [](UIHandle* self) -> std::string { return self ? self->element().automationId : ""; })
         .endClass()
         .beginNamespace("winbot")
             .addFunction("log", [](const std::string& msg) {

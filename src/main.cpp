@@ -44,7 +44,14 @@ static json loadConfig(const std::filesystem::path& path) {
         return def;
     }
     std::ifstream file{ path };
-    return json::parse(file);
+    try {
+        return json::parse(file);
+    } catch (const json::exception& e) {
+        // A corrupt config must not take the whole server down via
+        // std::terminate. Warn loudly and continue with built-in defaults.
+        WINBOT_ERROR("config.json is invalid ({}). Continuing with defaults.", e.what());
+        return json::object();
+    }
 }
 
 // ── Build PermissionSystem::Config from json ──────────────────────────────────

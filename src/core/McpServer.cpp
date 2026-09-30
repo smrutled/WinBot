@@ -34,12 +34,34 @@ void McpServer::sendError(const json& id, int code, const std::string& message,
 }
 
 // ── Main loop ────────────────────────────────────────────────────────────────
+// Reads one line from stdin, waking up periodically so the kill-switch (or
+// m_running=false) is honored even when no input is arriving. A plain
+// blocking std::getline would ignore Ctrl+Alt+X until the next line arrived.
+// Also guards the read itself: a bad_alloc from an absurdly long line would
+// otherwise escape outside any try block and terminate the process.
+static bool readLineStdin(std::string& line) {
+    HANDLE hStdin = ::GetStdHandle(STD_INPUT_HANDLE);
+    for (;;) {
+        if (KillSwitch::isTriggered()) return false;
+        if (std::cin.rdbuf()->in_avail() > 0) break; // already buffered
+        if (hStdin == nullptr || hStdin == INVALID_HANDLE_VALUE) break; // fall back to blocking read
+        DWORD wr = ::WaitForSingleObject(hStdin, 250);
+        if (wr == WAIT_OBJECT_0) break;    // input available (or pipe closed)
+        if (wr != WAIT_TIMEOUT) return false;
+    }
+    try {
+        return static_cast<bool>(std::getline(std::cin, line));
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
 void McpServer::run() {
     m_running = true;
     WINBOT_INFO("McpServer: MCP stdio server ready. Listening for JSON-RPC on stdin.");
 
     std::string line;
-    while (m_running && !KillSwitch::isTriggered() && std::getline(std::cin, line)) {
+    while (m_running && readLineStdin(line)) {
         // Skip blank lines
         if (line.empty() || line.find_first_not_of(" \t\r\n") == std::string::npos) {
             continue;

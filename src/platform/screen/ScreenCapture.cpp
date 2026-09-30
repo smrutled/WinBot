@@ -21,9 +21,13 @@ static void pngWriteCallback(void* ctx, void* data, int size) {
 // ──────────────────────────────────────────────────────────────────────────────
 std::expected<std::vector<uint8_t>, std::string>
 ScreenCapture::encodePng(std::span<const uint8_t> bgra, int width, int height) {
+    if (width <= 0 || height <= 0) return std::unexpected("Invalid image dimensions");
+    size_t expectedBytes = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+    if (bgra.size() < expectedBytes) return std::unexpected("Buffer too small for image dimensions");
+
     // Convert BGRA → RGBA (stb expects RGBA)
-    std::vector<uint8_t> rgba(bgra.size());
-    for (size_t i = 0; i + 3 < bgra.size(); i += 4) {
+    std::vector<uint8_t> rgba(expectedBytes);
+    for (size_t i = 0; i + 3 < expectedBytes; i += 4) {
         rgba[i + 0] = bgra[i + 2]; // R
         rgba[i + 1] = bgra[i + 1]; // G
         rgba[i + 2] = bgra[i + 0]; // B
@@ -45,10 +49,18 @@ ScreenCapture::encodePng(std::span<const uint8_t> bgra, int width, int height) {
 // ──────────────────────────────────────────────────────────────────────────────
 std::expected<ScreenCapture::CaptureResult, std::string>
 ScreenCapture::captureHdc(HDC srcDc, int x, int y, int w, int h) {
+    if (!srcDc) return std::unexpected("Source DC is null");
     if (w <= 0 || h <= 0) return std::unexpected("Invalid capture dimensions");
 
-    HDC memDc  = ::CreateCompatibleDC(srcDc);
+    HDC memDc = ::CreateCompatibleDC(srcDc);
+    if (!memDc) return std::unexpected("CreateCompatibleDC failed");
+
     HBITMAP bmp = ::CreateCompatibleBitmap(srcDc, w, h);
+    if (!bmp) {
+        ::DeleteDC(memDc);
+        return std::unexpected("CreateCompatibleBitmap failed");
+    }
+
     HBITMAP old = reinterpret_cast<HBITMAP>(::SelectObject(memDc, bmp));
 
     ::BitBlt(memDc, 0, 0, w, h, srcDc, x, y, SRCCOPY);
@@ -80,6 +92,7 @@ ScreenCapture::captureHdc(HDC srcDc, int x, int y, int w, int h) {
 std::expected<ScreenCapture::CaptureResult, std::string>
 ScreenCapture::captureDesktop() {
     HDC dc = ::GetDC(nullptr);
+    if (!dc) return std::unexpected("GetDC(nullptr) failed");
     int x  = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
     int y  = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
     int w  = ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
@@ -96,9 +109,13 @@ ScreenCapture::captureDesktop() {
 
 static bool isAllBlank(std::span<const uint8_t> bgra, int width, int height) {
     if (bgra.empty() || width <= 0 || height <= 0) return true;
+    size_t count = static_cast<size_t>(width) * static_cast<size_t>(height);
+    size_t maxElements = bgra.size() / sizeof(uint32_t);
+    count = (std::min)(count, maxElements);
+    if (count == 0) return true;
+
     const uint32_t* p = reinterpret_cast<const uint32_t*>(bgra.data());
-    size_t count = static_cast<size_t>(width * height);
-    size_t step = std::max<size_t>(1, count / 500);
+    size_t step = (count / 500 > 1) ? (count / 500) : 1;
     for (size_t i = 0; i < count; i += step) {
         if ((p[i] & 0x00FFFFFF) != 0) return false;
     }
@@ -125,7 +142,16 @@ ScreenCapture::captureWindowOffscreen(HWND hwnd) {
     if (!screenDc) return std::unexpected("Failed to get screen DC");
 
     HDC memDc = ::CreateCompatibleDC(screenDc);
+    if (!memDc) {
+        ::ReleaseDC(nullptr, screenDc);
+        return std::unexpected("CreateCompatibleDC failed");
+    }
     HBITMAP bmp = ::CreateCompatibleBitmap(screenDc, ww, wh);
+    if (!bmp) {
+        ::DeleteDC(memDc);
+        ::ReleaseDC(nullptr, screenDc);
+        return std::unexpected("CreateCompatibleBitmap failed");
+    }
     HBITMAP oldBmp = reinterpret_cast<HBITMAP>(::SelectObject(memDc, bmp));
 
     BOOL pwOk = ::PrintWindow(hwnd, memDc, PW_RENDERFULLCONTENT);
@@ -147,12 +173,19 @@ ScreenCapture::captureWindowOffscreen(HWND hwnd) {
         int oy = frameRect.top - winRect.top;
         if (ox >= 0 && oy >= 0 && fw > 0 && fh > 0 && (ox + fw) <= ww && (oy + fh) <= wh) {
             cropDc = ::CreateCompatibleDC(screenDc);
-            cropBmp = ::CreateCompatibleBitmap(screenDc, fw, fh);
-            cropOld = reinterpret_cast<HBITMAP>(::SelectObject(cropDc, cropBmp));
-            ::BitBlt(cropDc, 0, 0, fw, fh, memDc, ox, oy, SRCCOPY);
-            captureDc = cropDc;
-            finalW = fw;
-            finalH = fh;
+            cropBmp = cropDc ? ::CreateCompatibleBitmap(screenDc, fw, fh) : nullptr;
+            if (cropDc && cropBmp) {
+                cropOld = reinterpret_cast<HBITMAP>(::SelectObject(cropDc, cropBmp));
+                ::BitBlt(cropDc, 0, 0, fw, fh, memDc, ox, oy, SRCCOPY);
+                captureDc = cropDc;
+                finalW = fw;
+                finalH = fh;
+            } else {
+                if (cropBmp) ::DeleteObject(cropBmp);
+                if (cropDc) ::DeleteDC(cropDc);
+                cropBmp = nullptr;
+                cropDc = nullptr;
+            }
         }
     }
 

@@ -134,6 +134,10 @@ ToolResult setClipboard(std::string_view text) {
     HANDLE hMem = ::GlobalAlloc(GMEM_MOVEABLE, size);
     if (!hMem) return err("GlobalAlloc failed");
     auto* dst = static_cast<wchar_t*>(::GlobalLock(hMem));
+    if (!dst) {
+        ::GlobalFree(hMem);
+        return err("GlobalLock failed");
+    }
     std::memcpy(dst, wtext.data(), size);
     ::GlobalUnlock(hMem);
     if (!::OpenClipboard(nullptr)) { ::GlobalFree(hMem); return err("Cannot open clipboard"); }

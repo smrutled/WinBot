@@ -44,6 +44,8 @@ ToolResult ToolRegistry::dispatch(const json& toolCall) const {
         return m_tools[it->second].handler(args);
     } catch (const std::exception& e) {
         return err(std::format("Tool '{}' threw: {}", toolName, e.what()));
+    } catch (...) {
+        return err(std::format("Tool '{}' threw an unknown exception", toolName));
     }
 }
 

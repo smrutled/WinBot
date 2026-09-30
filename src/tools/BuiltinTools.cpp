@@ -105,6 +105,10 @@ ToolResult DebugUiaTool::execute(const json& args) {
 
     std::string outputCapture;
     m_debugger->setOutputCapture(&outputCapture);
+    struct CaptureGuard {
+        UIADebugger* dbg;
+        ~CaptureGuard() { if (dbg) dbg->setOutputCapture(nullptr); }
+    } guard{ m_debugger.get() };
 
     std::istringstream stream(script);
     std::string line;
@@ -119,8 +123,6 @@ ToolResult DebugUiaTool::execute(const json& args) {
             break;
         }
     }
-
-    m_debugger->setOutputCapture(nullptr);
 
     if (outputCapture.empty()) {
         return ok("(success, no output)");

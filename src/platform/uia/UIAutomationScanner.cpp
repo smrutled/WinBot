@@ -83,6 +83,10 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanFocusedWindow() c
 
     // Walk up to the root window to get context
     auto* walker = reinterpret_cast<IUIAutomationTreeWalker*>(m_treeWalker);
+    if (!walker) {
+        focusedEl->Release();
+        return std::unexpected("UI Automation TreeWalker not initialized");
+    }
     IUIAutomationElement* current = focusedEl;
     IUIAutomationElement* parent  = nullptr;
     HWND hwnd = nullptr;
@@ -300,6 +304,7 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanDesktop() const {
 
 std::expected<void, std::string> UIAutomationScanner::invokeElement(const std::vector<int>& runtimeId) const {
     if (!m_automation) return std::unexpected("UI Automation not initialized");
+    if (runtimeId.empty()) return std::unexpected("RuntimeId is empty");
     auto* automation = reinterpret_cast<IUIAutomation*>(m_automation);
 
     IUIAutomationElement* root = nullptr;
@@ -311,15 +316,23 @@ std::expected<void, std::string> UIAutomationScanner::invokeElement(const std::v
     VARIANT varId;
     VariantInit(&varId);
     varId.vt = VT_ARRAY | VT_I4;
-    SAFEARRAYBOUND bound{ (ULONG)runtimeId.size(), 0 };
+    SAFEARRAYBOUND bound{ static_cast<ULONG>(runtimeId.size()), 0 };
     varId.parray = SafeArrayCreate(VT_I4, 1, &bound);
-    for (long i = 0; i < (long)runtimeId.size(); ++i) {
-        int val = runtimeId[i];
+    if (!varId.parray) {
+        root->Release();
+        return std::unexpected("Failed to allocate SAFEARRAY for RuntimeId");
+    }
+    for (long i = 0; i < static_cast<long>(runtimeId.size()); ++i) {
+        int val = runtimeId[static_cast<size_t>(i)];
         SafeArrayPutElement(varId.parray, &i, &val);
     }
 
-    automation->CreatePropertyCondition(UIA_RuntimeIdPropertyId, varId, &condition);
+    HRESULT hrCond = automation->CreatePropertyCondition(UIA_RuntimeIdPropertyId, varId, &condition);
     VariantClear(&varId);
+    if (FAILED(hrCond) || !condition) {
+        root->Release();
+        return std::unexpected("Failed to create property condition for invoke");
+    }
 
     IUIAutomationElement* target = nullptr;
     HRESULT hr = root->FindFirst(TreeScope_Descendants, condition, &target);
@@ -345,8 +358,9 @@ std::expected<void, std::string> UIAutomationScanner::invokeElement(const std::v
 }
 
 UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwnd) const {
-    auto* el = reinterpret_cast<IUIAutomationElement*>(elPtr);
     UIElement result;
+    if (!elPtr) return result;
+    auto* el = reinterpret_cast<IUIAutomationElement*>(elPtr);
 
     // 1. Native Window Handle (prefer cached, fallback to current, fallback to ownerHwnd)
     HWND currentHwnd = nullptr;

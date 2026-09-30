@@ -17,6 +17,10 @@ void UIHandle::setInputHandlers(ClickHandler clickFn, TypeHandler typeFn, KeyHan
 static void defaultSendMouseClick(int x, int y, std::string_view button) {
     int screenW = ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int screenH = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    if (screenW <= 0) screenW = ::GetSystemMetrics(SM_CXSCREEN);
+    if (screenH <= 0) screenH = ::GetSystemMetrics(SM_CYSCREEN);
+    if (screenW <= 0) screenW = 1920;
+    if (screenH <= 0) screenH = 1080;
     int screenX = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
     int screenY = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
 

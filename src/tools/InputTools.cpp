@@ -13,6 +13,10 @@ namespace tools {
 static void sendMouseEvent(int x, int y, DWORD flags, DWORD data = 0) {
     int screenW = ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int screenH = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    if (screenW <= 0) screenW = ::GetSystemMetrics(SM_CXSCREEN);
+    if (screenH <= 0) screenH = ::GetSystemMetrics(SM_CYSCREEN);
+    if (screenW <= 0) screenW = 1920;
+    if (screenH <= 0) screenH = 1080;
     int screenX = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
     int screenY = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
 
