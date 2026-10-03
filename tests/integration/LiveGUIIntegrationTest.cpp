@@ -4,6 +4,7 @@
 #include "platform/uia/UIHandle.h"
 #include "platform/uia/UIADebugger.h"
 #include "platform/screen/ScreenCapture.h"
+#include "services/LuaRuntime.h"
 #include "tools/WindowTools.h"
 
 #include <windows.h>
@@ -310,3 +311,33 @@ TEST_F(CalculatorLiveGUITest, ControlCalculatorWindow) {
   result.refresh();
   EXPECT_EQ(result.element().name, "Display is 3");
 }
+
+TEST_F(CalculatorLiveGUITest, ControlCalculatorViaLuaScript) {
+  UIAutomationScanner scanner;
+  LuaRuntime lua(&scanner);
+
+  auto calcRes = scanner.waitForWindow("Calculator", 4000);
+  if (!calcRes.has_value()) {
+    GTEST_SKIP() << "Calculator window not instantiated in current session (requires interactive desktop): " 
+                 << calcRes.error();
+  }
+
+  const char* script = R"(
+    local calc = winbot.waitForWindow("Calculator", 4000)
+    if not calc then return "calc_not_found" end
+
+    calc:select("One", 5000):click()
+    calc:select("Plus", 2000):click()
+    calc:select("Two", 2000):click()
+    calc:select("Equals", 2000):click()
+
+    local result = calc:select("CalculatorResults", 2000)
+    result:refresh()
+    return result:name()
+  )";
+
+  auto res = lua.execString(script);
+  ASSERT_TRUE(res.has_value()) << res.error();
+  EXPECT_EQ(*res, "Display is 3");
+}
+

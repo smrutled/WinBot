@@ -196,7 +196,7 @@ int main(int argc, char* argv[]) {
         cfg.value("browser_exe",      "")
     };
 
-    LuaRuntime luaRuntime{ browser, uia, siteProfiles };
+    LuaRuntime luaRuntime{ browser, uia, siteProfiles, &perms };
 
     // ── Tool registry + built-in tools registration ───────────────────────────
     ToolRegistry tools;
