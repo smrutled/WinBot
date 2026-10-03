@@ -25,26 +25,6 @@ class PermissionSystem;
 class SiteProfileRegistry;
 class LuaRuntime;
 
-// ── Generic Lambda Tool ──────────────────────────────────────────────────────
-class LambdaTool : public ITool {
-public:
-    using Handler = std::function<ToolResult(const json& args)>;
-
-    LambdaTool(std::string name, std::string description, json schema, Handler handler)
-        : m_name(std::move(name)), m_description(std::move(description)),
-          m_schema(std::move(schema)), m_handler(std::move(handler)) {}
-
-    [[nodiscard]] std::string name() const override { return m_name; }
-    [[nodiscard]] std::string description() const override { return m_description; }
-    [[nodiscard]] json parametersSchema() const override { return m_schema; }
-    [[nodiscard]] ToolResult execute(const json& args) override { return m_handler(args); }
-
-private:
-    std::string m_name;
-    std::string m_description;
-    json        m_schema;
-    Handler     m_handler;
-};
 
 // ── Discovery Tools ──────────────────────────────────────────────────────────
 class ListToolsTool : public ITool {

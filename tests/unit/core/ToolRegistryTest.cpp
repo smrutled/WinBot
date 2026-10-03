@@ -6,14 +6,14 @@ namespace {
 
 TEST(ToolRegistryTest, DispatchCatchesStdException) {
     ToolRegistry registry;
-    registry.registerTool(ToolRegistry::ToolDef{
-        .name = "failing_tool",
-        .description = "Throws std::runtime_error",
-        .parametersSchema = json::object(),
-        .handler = [](const json&) -> ToolResult {
+    registry.registerTool(std::make_unique<LambdaTool>(
+        "failing_tool",
+        "Throws std::runtime_error",
+        json::object(),
+        [](const json&) -> ToolResult {
             throw std::runtime_error("Simulated hardware/subsystem fault");
         }
-    });
+    ));
 
     json call = {
         {"tool", "failing_tool"},
@@ -28,14 +28,14 @@ TEST(ToolRegistryTest, DispatchCatchesStdException) {
 
 TEST(ToolRegistryTest, DispatchCatchesNonStdException) {
     ToolRegistry registry;
-    registry.registerTool(ToolRegistry::ToolDef{
-        .name = "non_std_thrower",
-        .description = "Throws an int",
-        .parametersSchema = json::object(),
-        .handler = [](const json&) -> ToolResult {
+    registry.registerTool(std::make_unique<LambdaTool>(
+        "non_std_thrower",
+        "Throws an int",
+        json::object(),
+        [](const json&) -> ToolResult {
             throw 42;
         }
-    });
+    ));
 
     json call = {
         {"tool", "non_std_thrower"},

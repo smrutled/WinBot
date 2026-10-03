@@ -1,23 +1,11 @@
 #include "core/ToolRegistry.h"
 #include "security/PermissionSystem.h"
 
-void ToolRegistry::registerTool(ToolDef def) {
-    m_index[def.name] = m_tools.size();
-    m_tools.push_back(std::move(def));
-}
-
 void ToolRegistry::registerTool(std::unique_ptr<ITool> tool) {
     if (!tool) return;
-    std::shared_ptr<ITool> shared = std::move(tool);
-    ToolDef def{
-        .name = shared->name(),
-        .description = shared->description(),
-        .parametersSchema = shared->parametersSchema(),
-        .handler = [shared](const json& args) -> ToolResult {
-            return shared->execute(args);
-        }
-    };
-    registerTool(std::move(def));
+    std::string name = tool->name();
+    m_index[name] = m_tools.size();
+    m_tools.push_back(std::move(tool));
 }
 
 void ToolRegistry::registerSelfRegisteredTools(const ToolDependencies& deps) {
@@ -41,7 +29,7 @@ ToolResult ToolRegistry::dispatch(const json& toolCall) const {
 
     const json& args = toolCall.contains("args") ? toolCall["args"] : json::object();
     try {
-        return m_tools[it->second].handler(args);
+        return m_tools[it->second]->execute(args);
     } catch (const std::exception& e) {
         return err(std::format("Tool '{}' threw: {}", toolName, e.what()));
     } catch (...) {
@@ -72,11 +60,12 @@ std::string ToolRegistry::buildToolsPrompt() const {
         "### Tool List\n\n";
 
     for (const auto& t : m_tools) {
-        prompt += std::format("**{}**: {}\n", t.name, t.description);
-        if (!t.parametersSchema.empty() && t.parametersSchema.contains("properties")) {
-            for (const auto& [param, schema] : t.parametersSchema["properties"].items()) {
-                std::string desc = schema.value("description", "");
-                std::string type = schema.value("type", "string");
+        prompt += std::format("**{}**: {}\n", t->name(), t->description());
+        auto schema = t->parametersSchema();
+        if (!schema.empty() && schema.contains("properties")) {
+            for (const auto& [param, paramSchema] : schema["properties"].items()) {
+                std::string desc = paramSchema.value("description", "");
+                std::string type = paramSchema.value("type", "string");
                 prompt += std::format("  - `{}` ({}) — {}\n", param, type, desc);
             }
         }
@@ -89,9 +78,9 @@ json ToolRegistry::buildToolsSchema() const {
     json arr = json::array();
     for (const auto& t : m_tools) {
         arr.push_back({
-            {"name",        t.name},
-            {"description", t.description},
-            {"schema",      t.parametersSchema}
+            {"name",        t->name()},
+            {"description", t->description()},
+            {"schema",      t->parametersSchema()}
         });
     }
     return arr;

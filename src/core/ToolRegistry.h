@@ -8,26 +8,11 @@
 #include <vector>
 
 // ── ToolRegistry ──────────────────────────────────────────────────────────────
-// Central registry of all callable tools. Each tool has:
-//   - A name (used in LLM prompts and JSON tool calls)
-//   - A JSON schema (injected into the system prompt)
-//   - A handler function: (json args) -> ToolResult
+// Central registry of all callable tools implementing the ITool interface.
 //
 // The LLM is constrained by JSON grammar to always produce valid tool calls.
 class ToolRegistry {
 public:
-    using Handler = std::function<ToolResult(const json& args)>;
-
-    struct ToolDef {
-        std::string name;
-        std::string description;
-        json        parametersSchema;  // JSON Schema for arguments
-        Handler     handler;
-    };
-
-    // Register a tool via ToolDef
-    void registerTool(ToolDef def);
-
     // Register a tool via the ITool interface
     void registerTool(std::unique_ptr<ITool> tool);
 
@@ -49,10 +34,10 @@ public:
     // Check if a tool name is registered
     [[nodiscard]] bool hasTool(std::string_view name) const;
 
-    [[nodiscard]] const std::vector<ToolDef>& tools() const { return m_tools; }
+    [[nodiscard]] const std::vector<std::unique_ptr<ITool>>& tools() const { return m_tools; }
 
 private:
-    std::vector<ToolDef>                      m_tools;
+    std::vector<std::unique_ptr<ITool>>       m_tools;
     std::unordered_map<std::string, size_t>   m_index; // name → index into m_tools
 };
 

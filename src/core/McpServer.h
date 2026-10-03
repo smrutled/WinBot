@@ -66,8 +66,8 @@ private:
     // Process one JSON-RPC message (request or notification).
     void processMessage(const json& msg);
 
-    // Convert a ToolRegistry::ToolDef to MCP tool schema format.
-    static json toolDefToMcpSchema(const ToolRegistry::ToolDef& def);
+    // Convert an ITool to MCP tool schema format.
+    static json toolToMcpSchema(const ITool& tool);
 
     // Standard JSON-RPC error codes
     static constexpr int kParseError      = -32700;

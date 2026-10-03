@@ -220,8 +220,10 @@ void McpServer::handleInitialize(const json& id, const json& params) {
 void McpServer::handleToolsList(const json& id, const json& /*params*/) {
     json toolsArray = json::array();
 
-    for (const auto& def : m_tools.tools()) {
-        toolsArray.push_back(toolDefToMcpSchema(def));
+    for (const auto& tool : m_tools.tools()) {
+        if (tool) {
+            toolsArray.push_back(toolToMcpSchema(*tool));
+        }
     }
 
     sendResult(id, {{"tools", toolsArray}});
@@ -304,34 +306,35 @@ void McpServer::handlePing(const json& id) {
 }
 
 // ── Schema conversion ────────────────────────────────────────────────────────
-json McpServer::toolDefToMcpSchema(const ToolRegistry::ToolDef& def) {
+json McpServer::toolToMcpSchema(const ITool& tool) {
     // MCP tool schema format:
     // {
     //   "name": "...",
     //   "description": "...",
     //   "inputSchema": { "type": "object", "properties": {...}, "required": [...] }
     // }
-    json tool = {
-        {"name", def.name},
-        {"description", def.description}
+    json mcpTool = {
+        {"name", tool.name()},
+        {"description", tool.description()}
     };
 
     // Convert WinBot's parametersSchema to MCP's inputSchema.
     // WinBot stores it as {"type": "object", "properties": {...}, "required": [...]}.
     // MCP expects the same JSON Schema format under "inputSchema".
     json inputSchema = {{"type", "object"}};
+    json params = tool.parametersSchema();
 
-    if (def.parametersSchema.contains("properties")) {
-        inputSchema["properties"] = def.parametersSchema["properties"];
+    if (params.contains("properties")) {
+        inputSchema["properties"] = params["properties"];
     } else {
         inputSchema["properties"] = json::object();
     }
 
-    if (def.parametersSchema.contains("required")) {
-        inputSchema["required"] = def.parametersSchema["required"];
+    if (params.contains("required")) {
+        inputSchema["required"] = params["required"];
     }
 
-    tool["inputSchema"] = inputSchema;
+    mcpTool["inputSchema"] = inputSchema;
 
-    return tool;
+    return mcpTool;
 }
