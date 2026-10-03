@@ -40,6 +40,9 @@ public:
     // Used at registration time to skip disabled tools entirely.
     [[nodiscard]] bool isToolEnabled(std::string_view name) const;
 
+    // Checks path and confirms deletion if confirmFileDelete is enabled.
+    [[nodiscard]] ToolResult checkFileDelete(std::string_view path) const;
+
     // Prompts the user via console for explicit yes/no confirmation.
     // Returns ok("") if user confirms, err("denied") if not.
     [[nodiscard]] static ToolResult promptUser(std::string_view prompt);

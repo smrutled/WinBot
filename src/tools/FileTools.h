@@ -70,12 +70,18 @@ private:
 
 class ListDirectoryTool : public ITool {
 public:
+    explicit ListDirectoryTool(PermissionSystem& perms) : m_perms(&perms) {}
+    explicit ListDirectoryTool(PermissionSystem* perms = nullptr) : m_perms(perms) {}
+
     [[nodiscard]] std::string name() const override { return "list_directory"; }
     [[nodiscard]] std::string description() const override {
         return "List files in a directory";
     }
     [[nodiscard]] json parametersSchema() const override;
     [[nodiscard]] ToolResult execute(const json& args) override;
+
+private:
+    PermissionSystem* m_perms{nullptr};
 };
 
 class DeleteFileTool : public ITool {
@@ -96,12 +102,18 @@ private:
 
 class CopyFileTool : public ITool {
 public:
+    explicit CopyFileTool(PermissionSystem& perms) : m_perms(&perms) {}
+    explicit CopyFileTool(PermissionSystem* perms = nullptr) : m_perms(perms) {}
+
     [[nodiscard]] std::string name() const override { return "copy_file"; }
     [[nodiscard]] std::string description() const override {
         return "Copy a file from src to dst";
     }
     [[nodiscard]] json parametersSchema() const override;
     [[nodiscard]] ToolResult execute(const json& args) override;
+
+private:
+    PermissionSystem* m_perms{nullptr};
 };
 
 // Explicit initialization anchor

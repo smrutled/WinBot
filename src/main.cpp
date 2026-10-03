@@ -33,9 +33,9 @@ static json loadConfig(const std::filesystem::path& path) {
             {"scheduled_tasks",    json::array()},
             {"permission", {
                 {"allowed_paths",          {"%USERPROFILE%", "%APPDATA%", "%TEMP%"}},
-                {"blocked_paths",          {"C:\\Windows\\System32", "C:\\Windows\\SysWOW64"}},
-                {"blocked_processes",      {"winlogon.exe","csrss.exe","smss.exe","lsass.exe"}},
-                {"dangerous_cmd_patterns", {"rm -rf","format ","del /f /s /q","reg delete"}},
+                {"blocked_paths",          {"C:\\Windows\\System32", "C:\\Windows\\SysWOW64", "%USERPROFILE%\\.ssh", "%USERPROFILE%\\.aws"}},
+                {"blocked_processes",      {"winlogon.exe","csrss.exe","smss.exe","lsass.exe","services.exe"}},
+                {"dangerous_cmd_patterns", {"rm -rf","format ","del /f /s /q","reg delete","diskpart","bcdedit","shutdown","Stop-Computer"}},
                 {"confirm_shell_commands", true},
                 {"confirm_file_delete",    true},
                 {"confirm_process_kill",   true}

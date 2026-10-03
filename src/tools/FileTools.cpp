@@ -146,7 +146,12 @@ json ListDirectoryTool::parametersSchema() const {
 }
 
 ToolResult ListDirectoryTool::execute(const json& args) {
-    return tools::listDirectory(args.value("path", "."));
+    auto path = args.value("path", ".");
+    if (m_perms) {
+        auto check = m_perms->checkPath(path);
+        if (!check) return check;
+    }
+    return tools::listDirectory(path);
 }
 
 // ── DeleteFileTool ───────────────────────────────────────────────────────────
@@ -161,13 +166,9 @@ json DeleteFileTool::parametersSchema() const {
 ToolResult DeleteFileTool::execute(const json& args) {
     auto path = args.value("path", "");
     if (m_perms) {
-        auto check = m_perms->checkPath(path);
+        auto check = m_perms->checkFileDelete(path);
         if (!check) return check;
     }
-
-    auto confirm = PermissionSystem::promptUser(
-        std::format("Delete file '{}'?", path));
-    if (!confirm) return confirm;
 
     return tools::deleteFile(path);
 }
@@ -185,7 +186,15 @@ json CopyFileTool::parametersSchema() const {
 }
 
 ToolResult CopyFileTool::execute(const json& args) {
-    return tools::copyFile(args.value("src", ""), args.value("dst", ""));
+    auto src = args.value("src", "");
+    auto dst = args.value("dst", "");
+    if (m_perms) {
+        auto checkSrc = m_perms->checkPath(src);
+        if (!checkSrc) return checkSrc;
+        auto checkDst = m_perms->checkPath(dst);
+        if (!checkDst) return checkDst;
+    }
+    return tools::copyFile(src, dst);
 }
 
 // ── Self-Registration ────────────────────────────────────────────────────────
@@ -198,10 +207,14 @@ REGISTER_TOOL_WITH_DEPS(WriteFileTool, [](const ToolDependencies& d) {
 REGISTER_TOOL_WITH_DEPS(AppendFileTool, [](const ToolDependencies& d) {
     return std::make_unique<AppendFileTool>(d.perms);
 });
-REGISTER_TOOL(ListDirectoryTool);
+REGISTER_TOOL_WITH_DEPS(ListDirectoryTool, [](const ToolDependencies& d) {
+    return std::make_unique<ListDirectoryTool>(d.perms);
+});
 REGISTER_TOOL_WITH_DEPS(DeleteFileTool, [](const ToolDependencies& d) {
     return std::make_unique<DeleteFileTool>(d.perms);
 });
-REGISTER_TOOL(CopyFileTool);
+REGISTER_TOOL_WITH_DEPS(CopyFileTool, [](const ToolDependencies& d) {
+    return std::make_unique<CopyFileTool>(d.perms);
+});
 
 void initFileTools() {}
