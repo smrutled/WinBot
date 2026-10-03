@@ -8,7 +8,7 @@
 namespace tools {
 
 // ── run_command ───────────────────────────────────────────────────────────────
-ToolResult runCommand(std::string_view cmd, std::string_view shell, int timeoutMs) {
+ToolResult runCommand(std::string_view cmd, std::string_view shell, int timeoutMs, std::stop_token stopToken) {
     // Clamp: a negative timeout would become a ~49-day wait after the DWORD cast.
     if (timeoutMs < 0) timeoutMs = 30000;
     std::string fullCmd;
@@ -44,13 +44,19 @@ ToolResult runCommand(std::string_view cmd, std::string_view shell, int timeoutM
         return err(std::format("CreateProcess failed: {}", ::GetLastError()));
     }
 
+    HANDLE hJob = ::CreateJobObjectW(nullptr, nullptr);
+    if (hJob) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli{};
+        jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        ::SetInformationJobObject(hJob, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli));
+        ::AssignProcessToJobObject(hJob, pi.hProcess);
+    }
+
     ::CloseHandle(hWritePipe); // Close our copy of write end
 
     // Wait for the process in small slices while draining the pipe, so
-    // timeoutMs is honored even when the child never closes stdout
-    // (the old code read-until-EOF *before* waiting, which made the timeout
-    // useless for commands like `ping -t` and wedged the whole MCP session —
-    // there is no cancellation support to recover from that).
+    // timeoutMs is honored even when the child never closes stdout, and
+    // cooperative cancellation (stopToken) can terminate the process immediately.
     constexpr size_t kMaxOutputBytes = 4u * 1024u * 1024u; // 4 MiB cap
     constexpr DWORD kSliceMs = 100;
     std::string output;
@@ -82,7 +88,13 @@ ToolResult runCommand(std::string_view cmd, std::string_view shell, int timeoutM
     const ULONGLONG deadline = ::GetTickCount64() + static_cast<ULONGLONG>(timeoutMs);
     bool finished = false;
     bool timedOut = false;
+    bool cancelled = false;
     while (!finished) {
+        if (stopToken.stop_requested()) {
+            cancelled = true;
+            finished = true;
+            break;
+        }
         ULONGLONG now = ::GetTickCount64();
         DWORD slice = (deadline > now)
             ? static_cast<DWORD>((std::min)(deadline - now, static_cast<ULONGLONG>(kSliceMs)))
@@ -97,19 +109,28 @@ ToolResult runCommand(std::string_view cmd, std::string_view shell, int timeoutM
         }
     }
 
-    if (timedOut) {
-        ::TerminateProcess(pi.hProcess, 1); // don't leave it orphaned
-        ::WaitForSingleObject(pi.hProcess, 5000);
+    if (cancelled || timedOut) {
+        if (hJob) {
+            ::TerminateJobObject(hJob, 1);
+        } else {
+            ::TerminateProcess(pi.hProcess, 1);
+        }
+        ::WaitForSingleObject(pi.hProcess, 1000);
         drainPipe(); // collect anything flushed on death
     }
 
     DWORD exitCode = 0;
     ::GetExitCodeProcess(pi.hProcess, &exitCode);
+    if (hJob) ::CloseHandle(hJob);
     ::CloseHandle(pi.hProcess);
     ::CloseHandle(pi.hThread);
     ::CloseHandle(hReadPipe);
 
     if (truncated) output += "\n[WinBot: output truncated at 4 MiB]";
+    if (cancelled) {
+        return err(std::format("Command cancelled (process terminated)\n{}",
+                               output.empty() ? "(no output)" : output));
+    }
     if (timedOut) {
         return err(std::format("Command timed out after {} ms (process terminated)\n{}",
                                timeoutMs, output.empty() ? "(no output)" : output));
@@ -228,13 +249,17 @@ json RunCommandTool::parametersSchema() const {
 }
 
 ToolResult RunCommandTool::execute(const json& args) {
+    return execute(args, std::stop_token{});
+}
+
+ToolResult RunCommandTool::execute(const json& args, std::stop_token stopToken) {
     auto cmd = args.value("cmd", "");
     auto shell = args.value("shell", "cmd");
     if (m_perms) {
         auto check = m_perms->checkShellCommand(cmd);
         if (!check) return check;
     }
-    return tools::runCommand(cmd, shell, args.value("timeout_ms", 30000));
+    return tools::runCommand(cmd, shell, args.value("timeout_ms", 30000), stopToken);
 }
 
 // ── HttpGetTool ──────────────────────────────────────────────────────────────

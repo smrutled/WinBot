@@ -19,7 +19,7 @@ void ToolRegistry::registerSelfRegisteredTools(const ToolDependencies& deps) {
     }
 }
 
-ToolResult ToolRegistry::dispatch(const json& toolCall) const {
+ToolResult ToolRegistry::dispatch(const json& toolCall, std::stop_token stopToken) const {
     std::string toolName = toolCall.value("tool", "");
     if (toolName.empty()) return err("Tool call missing 'tool' field");
 
@@ -29,7 +29,7 @@ ToolResult ToolRegistry::dispatch(const json& toolCall) const {
 
     const json& args = toolCall.contains("args") ? toolCall["args"] : json::object();
     try {
-        return m_tools[it->second]->execute(args);
+        return m_tools[it->second]->execute(args, stopToken);
     } catch (const std::exception& e) {
         return err(std::format("Tool '{}' threw: {}", toolName, e.what()));
     } catch (...) {
@@ -37,7 +37,7 @@ ToolResult ToolRegistry::dispatch(const json& toolCall) const {
     }
 }
 
-ToolResult ToolRegistry::dispatchRaw(std::string_view jsonStr) const {
+ToolResult ToolRegistry::dispatchRaw(std::string_view jsonStr, std::stop_token stopToken) const {
     // Strip markdown code fences if model wrapped the JSON
     std::string cleaned(jsonStr);
     auto start = cleaned.find('{');
@@ -47,7 +47,7 @@ ToolResult ToolRegistry::dispatchRaw(std::string_view jsonStr) const {
     cleaned = cleaned.substr(start, end - start + 1);
 
     try {
-        return dispatch(json::parse(cleaned));
+        return dispatch(json::parse(cleaned), stopToken);
     } catch (const json::exception& e) {
         return err(std::format("JSON parse error: {} in: {}", e.what(), cleaned));
     }

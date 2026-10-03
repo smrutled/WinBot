@@ -4,6 +4,7 @@
 #include "core/ITool.h"
 #include <functional>
 #include <memory>
+#include <stop_token>
 #include <unordered_map>
 #include <vector>
 
@@ -20,10 +21,10 @@ public:
     void registerSelfRegisteredTools(const ToolDependencies& deps = {});
 
     // Dispatch a tool call from a parsed JSON object {"tool": "...", "args": {...}}
-    [[nodiscard]] ToolResult dispatch(const json& toolCall) const;
+    [[nodiscard]] ToolResult dispatch(const json& toolCall, std::stop_token stopToken = {}) const;
 
     // Dispatch from raw string (parse first)
-    [[nodiscard]] ToolResult dispatchRaw(std::string_view jsonStr) const;
+    [[nodiscard]] ToolResult dispatchRaw(std::string_view jsonStr, std::stop_token stopToken = {}) const;
 
     // Generate human-readable tools description
     [[nodiscard]] std::string buildToolsPrompt() const;

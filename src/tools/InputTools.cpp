@@ -3,11 +3,14 @@
 #include "platform/browser/BrowserAutomation.h"
 #include <algorithm>
 #include <cctype>
-#include <unordered_map>
-#include <random>
 #include <cmath>
+#include <mutex>
+#include <random>
+#include <unordered_map>
 
 namespace tools {
+
+static std::recursive_mutex s_inputMutex;
 
 // ── Mouse helpers ─────────────────────────────────────────────────────────────
 static void sendMouseEvent(int x, int y, DWORD flags, DWORD data = 0) {
@@ -30,12 +33,14 @@ static void sendMouseEvent(int x, int y, DWORD flags, DWORD data = 0) {
 }
 
 ToolResult moveMouse(int x, int y, bool humanMove) {
+    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
     if (humanMove) return humanMouseMove(x, y);
     sendMouseEvent(x, y, MOUSEEVENTF_MOVE);
     return ok(std::format("Mouse moved to ({}, {})", x, y));
 }
 
 ToolResult humanMouseMove(int toX, int toY) {
+    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
     POINT from;
     ::GetCursorPos(&from);
     
@@ -94,8 +99,9 @@ ToolResult humanMouseMove(int toX, int toY) {
 }
 
 ToolResult click(int x, int y, std::string_view button, bool humanMove) {
+    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
     if (humanMove) {
-        humanMouseMove(x, y);
+        (void)humanMouseMove(x, y);
         ::Sleep(30 + (rand() % 40));
     } else {
         sendMouseEvent(x, y, MOUSEEVENTF_MOVE);
@@ -117,6 +123,7 @@ ToolResult click(int x, int y, std::string_view button, bool humanMove) {
 }
 
 ToolResult doubleClick(int x, int y, bool humanMove) {
+    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
     (void)click(x, y, "left", humanMove);
     ::Sleep(50);
     (void)click(x, y, "left", false); // Second click doesn't need to move again
@@ -124,13 +131,14 @@ ToolResult doubleClick(int x, int y, bool humanMove) {
 }
 
 ToolResult drag(int x1, int y1, int x2, int y2, bool humanMove) {
+    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
     if (humanMove) {
-        humanMouseMove(x1, y1);
+        (void)humanMouseMove(x1, y1);
         ::Sleep(30 + (rand() % 40));
         sendMouseEvent(x1, y1, MOUSEEVENTF_LEFTDOWN);
         ::Sleep(50 + (rand() % 40));
         // Drag with human movement
-        humanMouseMove(x2, y2);
+        (void)humanMouseMove(x2, y2);
         ::Sleep(20 + (rand() % 20));
     } else {
         sendMouseEvent(x1, y1, MOUSEEVENTF_MOVE);
@@ -152,8 +160,9 @@ ToolResult drag(int x1, int y1, int x2, int y2, bool humanMove) {
 }
 
 ToolResult scroll(int x, int y, int delta, bool humanMove) {
+    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
     if (humanMove) {
-        humanMouseMove(x, y);
+        (void)humanMouseMove(x, y);
         ::Sleep(30 + (rand() % 30));
     } else {
         sendMouseEvent(x, y, MOUSEEVENTF_MOVE);
@@ -189,6 +198,7 @@ static void sendKeyEvent(WORD vk, bool down) {
 }
 
 ToolResult keyPress(std::string_view combo) {
+    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
     // Parse "Ctrl+Alt+Delete", "Enter", "F5", etc.
     std::string lower(combo);
     to_lower_inplace(lower);
@@ -232,6 +242,7 @@ ToolResult keyPress(std::string_view combo) {
 }
 
 ToolResult typeText(std::string_view text) {
+    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
     // Type each character using KEYEVENTF_UNICODE for full Unicode support
     for (char32_t c : text) {
         INPUT inputs[2]{};

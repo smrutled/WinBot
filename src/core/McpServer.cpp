@@ -8,16 +8,31 @@
 
 // ──────────────────────────────────────────────────────────────────────────────
 McpServer::McpServer(Config cfg, ToolRegistry& tools)
-    : m_cfg(std::move(cfg)), m_tools(tools) {}
+    : McpServer(std::move(cfg), tools, std::cin, std::cout) {}
+
+McpServer::McpServer(Config cfg, ToolRegistry& tools, std::istream& in, std::ostream& out)
+    : m_cfg(std::move(cfg)),
+      m_tools(tools),
+      m_in(&in),
+      m_out(&out),
+      m_threadPool(std::make_unique<ThreadPool>(m_cfg.workerThreads)) {}
+
+McpServer::~McpServer() {
+    stop();
+}
 
 // ── Wire format ──────────────────────────────────────────────────────────────
 // MCP stdio transport: newline-delimited JSON-RPC 2.0 messages on stdin/stdout.
 // Each message is a single JSON object on its own line, terminated by '\n'.
+// Thread-safe: output is serialized using m_sendMutex.
 
 void McpServer::send(const json& msg) {
     std::string line = msg.dump();
-    std::cout << line << '\n';
-    std::cout.flush();
+    std::lock_guard<std::mutex> lock(m_sendMutex);
+    if (m_out) {
+        (*m_out) << line << '\n';
+        m_out->flush();
+    }
 }
 
 void McpServer::sendResult(const json& id, const json& result) {
@@ -37,8 +52,6 @@ void McpServer::sendError(const json& id, int code, const std::string& message,
 // Reads one line from stdin, waking up periodically so the kill-switch (or
 // m_running=false) is honored even when no input is arriving. A plain
 // blocking std::getline would ignore Ctrl+Alt+X until the next line arrived.
-// Also guards the read itself: a bad_alloc from an absurdly long line would
-// otherwise escape outside any try block and terminate the process.
 static bool readLineStdin(std::string& line) {
     HANDLE hStdin = ::GetStdHandle(STD_INPUT_HANDLE);
     for (;;) {
@@ -58,10 +71,17 @@ static bool readLineStdin(std::string& line) {
 
 void McpServer::run() {
     m_running = true;
-    WINBOT_INFO("McpServer: MCP stdio server ready. Listening for JSON-RPC on stdin.");
+    WINBOT_INFO("McpServer: MCP server ready. Listening for JSON-RPC messages.");
 
     std::string line;
-    while (m_running && readLineStdin(line)) {
+    auto readNext = [&]() -> bool {
+        if (m_in == &std::cin) {
+            return readLineStdin(line);
+        }
+        return m_in ? static_cast<bool>(std::getline(*m_in, line)) : false;
+    };
+
+    while (m_running && readNext()) {
         // Skip blank lines
         if (line.empty() || line.find_first_not_of(" \t\r\n") == std::string::npos) {
             continue;
@@ -88,11 +108,43 @@ void McpServer::run() {
         }
     }
 
-    WINBOT_INFO("McpServer: stdin closed or shutdown signal — exiting.");
+    WINBOT_INFO("McpServer: input closed or shutdown signal — exiting.");
+    if (m_threadPool) {
+        m_threadPool->waitIdle();
+    }
+    stop();
 }
 
 void McpServer::stop() {
     m_running = false;
+    {
+        std::lock_guard<std::mutex> lock(m_requestsMutex);
+        for (auto& [key, req] : m_activeRequests) {
+            req->cancelled.store(true, std::memory_order_release);
+            req->stopSource.request_stop();
+        }
+    }
+    if (m_threadPool) {
+        m_threadPool->stop();
+    }
+}
+
+bool McpServer::cancelRequest(const std::string& key) {
+    std::shared_ptr<ActiveRequest> req;
+    {
+        std::lock_guard<std::mutex> lock(m_requestsMutex);
+        if (auto it = m_activeRequests.find(key); it != m_activeRequests.end()) {
+            req = it->second;
+        }
+    }
+    if (req) {
+        req->cancelled.store(true, std::memory_order_release);
+        req->stopSource.request_stop();
+        WINBOT_INFO("McpServer: Cancellation requested for active request {}", key);
+        return true;
+    }
+    WINBOT_INFO("McpServer: Cancellation requested for unknown/completed request {}", key);
+    return false;
 }
 
 // ── Message dispatch ─────────────────────────────────────────────────────────
@@ -116,12 +168,11 @@ void McpServer::processMessage(const json& msg) {
     if (isNotification) {
         if (method == "notifications/initialized") {
             WINBOT_INFO("McpServer: Client sent initialized notification.");
-            // Nothing to do — we already set m_initialized in handleInitialize
         } else if (method == "notifications/cancelled") {
-            WINBOT_INFO("McpServer: Client cancelled request {}",
-                        params.value("requestId", json(nullptr)).dump());
-            // We don't support cancellation of in-flight requests, but we
-            // acknowledge the notification by not erroring.
+            json reqId = params.value("requestId", json(nullptr));
+            std::string key = reqId.dump();
+            WINBOT_INFO("McpServer: Client cancelled request {}", key);
+            cancelRequest(key);
         } else {
             WINBOT_WARN("McpServer: Unknown notification method: '{}'", method);
         }
@@ -158,13 +209,10 @@ void McpServer::processMessage(const json& msg) {
     } else if (method == "tools/call") {
         handleToolsCall(id, params);
     } else if (method == "resources/list") {
-        // We don't expose resources, but respond with an empty list
-        // so clients don't get a method-not-found error.
         sendResult(id, {{"resources", json::array()}});
     } else if (method == "resources/templates/list") {
         sendResult(id, {{"resourceTemplates", json::array()}});
     } else if (method == "prompts/list") {
-        // We don't expose prompts, but respond with an empty list.
         sendResult(id, {{"prompts", json::array()}});
     } else {
         sendError(id, kMethodNotFound,
@@ -174,7 +222,6 @@ void McpServer::processMessage(const json& msg) {
 
 // ── initialize ───────────────────────────────────────────────────────────────
 void McpServer::handleInitialize(const json& id, const json& params) {
-    // Log client info
     if (params.contains("clientInfo")) {
         auto& ci = params["clientInfo"];
         WINBOT_INFO("McpServer: Client: {} {}",
@@ -185,12 +232,8 @@ void McpServer::handleInitialize(const json& id, const json& params) {
     std::string clientProtocolVersion = params.value("protocolVersion", "");
     WINBOT_INFO("McpServer: Client protocol version: {}", clientProtocolVersion);
 
-    // We support MCP protocol version 2024-11-05 (the latest stable)
-    // and also declare compatibility with 2025-11-25 which the client may
-    // request. Per spec, the server responds with the version it supports.
     std::string negotiatedVersion = "2024-11-05";
 
-    // If client requests a version we know about, echo it back
     if (clientProtocolVersion == "2025-03-26" ||
         clientProtocolVersion == "2025-06-18" ||
         clientProtocolVersion == "2025-11-25") {
@@ -230,6 +273,8 @@ void McpServer::handleToolsList(const json& id, const json& /*params*/) {
 }
 
 // ── tools/call ───────────────────────────────────────────────────────────────
+// Dispatched asynchronously onto ThreadPool to enable concurrent tool execution
+// and unblock stdin so incoming cancellations and subsequent calls are read.
 void McpServer::handleToolsCall(const json& id, const json& params) {
     std::string toolName = params.value("name", "");
     if (toolName.empty()) {
@@ -238,66 +283,98 @@ void McpServer::handleToolsCall(const json& id, const json& params) {
     }
 
     json args = params.value("arguments", json::object());
+    std::string reqKey = id.dump();
 
-    WINBOT_INFO("McpServer: tools/call name='{}' args={}", toolName, args.dump());
+    WINBOT_INFO("McpServer: Dispatching tools/call name='{}' (id={})", toolName, reqKey);
 
-    // Dispatch through the existing ToolRegistry
-    auto result = m_tools.dispatch(json{{"tool", toolName}, {"args", args}});
+    auto activeReq = std::make_shared<ActiveRequest>();
+    {
+        std::lock_guard<std::mutex> lock(m_requestsMutex);
+        m_activeRequests[reqKey] = activeReq;
+    }
 
-    if (result) {
-        // Build MCP tool result — content array with a text item
-        json content = json::array();
+    m_threadPool->enqueue([this, id, toolName, args, activeReq, reqKey]() {
+        // Ensure request is deregistered from active map on exit
+        struct ActiveGuard {
+            McpServer* server;
+            std::string key;
+            ~ActiveGuard() {
+                std::lock_guard<std::mutex> lock(server->m_requestsMutex);
+                server->m_activeRequests.erase(key);
+            }
+        } guard{this, reqKey};
 
-        // Check if the result looks like it contains image data
-        // (screenshot tools return JSON with "data" field containing base64 PNG)
-        bool hasImage = false;
-        try {
-            json parsed = json::parse(*result);
-            if (parsed.is_object() && parsed.contains("data") &&
-                parsed.contains("format") && parsed["format"] == "png") {
-                hasImage = true;
-                // Add a text summary
+        std::stop_token stopToken = activeReq->stopSource.get_token();
+
+        // 1. Check if cancelled before execution started
+        if (stopToken.stop_requested() || activeReq->cancelled.load(std::memory_order_acquire)) {
+            WINBOT_INFO("McpServer: Tool '{}' (id={}) cancelled before execution.", toolName, reqKey);
+            sendError(id, kRequestCancelled, "Request cancelled by client");
+            return;
+        }
+
+        // 2. Dispatch with cooperative cancellation token
+        auto result = m_tools.dispatch(json{{"tool", toolName}, {"args", args}}, stopToken);
+
+        // 3. Check if cancelled during execution
+        if (stopToken.stop_requested() || activeReq->cancelled.load(std::memory_order_acquire)) {
+            WINBOT_INFO("McpServer: Tool '{}' (id={}) cancelled during execution.", toolName, reqKey);
+            sendError(id, kRequestCancelled, "Request cancelled by client");
+            return;
+        }
+
+        // 4. Send tool result
+        if (result) {
+            json content = json::array();
+            bool hasImage = false;
+            try {
+                json parsed = json::parse(*result);
+                if (parsed.is_object() && parsed.contains("data") &&
+                    parsed.contains("format") && parsed["format"] == "png") {
+                    hasImage = true;
+                    content.push_back({
+                        {"type", "text"},
+                        {"text", std::format("Screenshot captured: {}x{} px",
+                                 parsed.value("width", 0),
+                                 parsed.value("height", 0))}
+                    });
+                    content.push_back({
+                        {"type", "image"},
+                        {"data", parsed["data"]},
+                        {"mimeType", "image/png"}
+                    });
+                }
+            } catch (...) {
+                // Not JSON or not an image
+            }
+
+            if (!hasImage) {
                 content.push_back({
                     {"type", "text"},
-                    {"text", std::format("Screenshot captured: {}x{} px",
-                             parsed.value("width", 0),
-                             parsed.value("height", 0))}
-                });
-                // Add the image content
-                content.push_back({
-                    {"type", "image"},
-                    {"data", parsed["data"]},
-                    {"mimeType", "image/png"}
+                    {"text", *result}
                 });
             }
-        } catch (...) {
-            // Not JSON or not an image — that's fine
-        }
 
-        if (!hasImage) {
+            sendResult(id, {{"content", content}, {"isError", false}});
+        } else {
+            json content = json::array();
             content.push_back({
                 {"type", "text"},
-                {"text", *result}
+                {"text", result.error()}
             });
+            sendResult(id, {{"content", content}, {"isError", true}});
         }
 
-        sendResult(id, {{"content", content}, {"isError", false}});
-    } else {
-        // Tool returned an error — per MCP spec, we still return a successful
-        // JSON-RPC response but with isError=true in the result.
-        json content = json::array();
-        content.push_back({
-            {"type", "text"},
-            {"text", result.error()}
-        });
-        sendResult(id, {{"content", content}, {"isError", true}});
-    }
-
-    // Optional inter-action delay
-    if (m_cfg.actionDelayMs > 0) {
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(m_cfg.actionDelayMs));
-    }
+        // 5. Optional inter-action delay (interruptible by cancellation or server shutdown)
+        if (m_cfg.actionDelayMs > 0 && !stopToken.stop_requested()) {
+            auto start = std::chrono::steady_clock::now();
+            auto duration = std::chrono::milliseconds(m_cfg.actionDelayMs);
+            while (m_running && !stopToken.stop_requested() &&
+                   (std::chrono::steady_clock::now() - start < duration)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+    });
 }
 
 // ── ping ─────────────────────────────────────────────────────────────────────
@@ -307,20 +384,11 @@ void McpServer::handlePing(const json& id) {
 
 // ── Schema conversion ────────────────────────────────────────────────────────
 json McpServer::toolToMcpSchema(const ITool& tool) {
-    // MCP tool schema format:
-    // {
-    //   "name": "...",
-    //   "description": "...",
-    //   "inputSchema": { "type": "object", "properties": {...}, "required": [...] }
-    // }
     json mcpTool = {
         {"name", tool.name()},
         {"description", tool.description()}
     };
 
-    // Convert WinBot's parametersSchema to MCP's inputSchema.
-    // WinBot stores it as {"type": "object", "properties": {...}, "required": [...]}.
-    // MCP expects the same JSON Schema format under "inputSchema".
     json inputSchema = {{"type", "object"}};
     json params = tool.parametersSchema();
 
@@ -335,6 +403,5 @@ json McpServer::toolToMcpSchema(const ITool& tool) {
     }
 
     mcpTool["inputSchema"] = inputSchema;
-
     return mcpTool;
 }

@@ -10,7 +10,7 @@ class PermissionSystem;
 namespace tools {
 // Shell command execution and web requests
 
-ToolResult runCommand(std::string_view cmd, std::string_view shell = "cmd", int timeoutMs = 30000);
+ToolResult runCommand(std::string_view cmd, std::string_view shell = "cmd", int timeoutMs = 30000, std::stop_token stopToken = {});
 ToolResult httpGet(std::string_view url, std::string_view headers = {});
 ToolResult searchWeb(std::string_view query);
 
@@ -29,6 +29,7 @@ public:
     }
     [[nodiscard]] json parametersSchema() const override;
     [[nodiscard]] ToolResult execute(const json& args) override;
+    [[nodiscard]] ToolResult execute(const json& args, std::stop_token stopToken) override;
 
 private:
     PermissionSystem* m_perms{nullptr};

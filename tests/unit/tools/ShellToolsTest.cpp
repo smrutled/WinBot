@@ -22,4 +22,21 @@ TEST(ShellToolsTest, RunCommandNonZeroExitReportsCodeAndOutput) {
     EXPECT_TRUE(result->find("Exit 7") != std::string::npos);
 }
 
+TEST(ShellToolsTest, RunCommandCancellationTerminatesProcess) {
+    std::stop_source stopSrc;
+    // Launch a command that would take 10 seconds unless cancelled
+    std::jthread canceller([&]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        stopSrc.request_stop();
+    });
+
+    auto start = std::chrono::steady_clock::now();
+    auto result = tools::runCommand("ping 127.0.0.1 -n 10", "cmd", 15000, stopSrc.get_token());
+    auto elapsed = std::chrono::steady_clock::now() - start;
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_TRUE(result.error().find("Command cancelled") != std::string::npos);
+    EXPECT_LT(elapsed, std::chrono::milliseconds(3000));
+}
+
 } // namespace

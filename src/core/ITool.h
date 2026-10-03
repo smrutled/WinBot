@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include <stop_token>
+
 // Forward declarations of subsystems that tools can optionally depend on
 class UIAutomationScanner;
 class BrowserAutomation;
@@ -36,6 +38,11 @@ public:
     [[nodiscard]] virtual json parametersSchema() const = 0;
     [[nodiscard]] virtual json schema() const { return parametersSchema(); }
     [[nodiscard]] virtual ToolResult execute(const json& args) = 0;
+
+    // Optional cooperative cancellation overload (C++20/23 std::stop_token)
+    [[nodiscard]] virtual ToolResult execute(const json& args, std::stop_token /*stopToken*/) {
+        return execute(args);
+    }
 };
 
 // ── LambdaTool ───────────────────────────────────────────────────────────────
@@ -43,21 +50,40 @@ public:
 class LambdaTool : public ITool {
 public:
     using Handler = std::function<ToolResult(const json& args)>;
+    using CancelableHandler = std::function<ToolResult(const json& args, std::stop_token stopToken)>;
 
     LambdaTool(std::string name, std::string description, json schema, Handler handler)
         : m_name(std::move(name)), m_description(std::move(description)),
           m_schema(std::move(schema)), m_handler(std::move(handler)) {}
 
+    LambdaTool(std::string name, std::string description, json schema, CancelableHandler cancelableHandler)
+        : m_name(std::move(name)), m_description(std::move(description)),
+          m_schema(std::move(schema)), m_cancelableHandler(std::move(cancelableHandler)) {}
+
     [[nodiscard]] std::string name() const override { return m_name; }
     [[nodiscard]] std::string description() const override { return m_description; }
     [[nodiscard]] json parametersSchema() const override { return m_schema; }
-    [[nodiscard]] ToolResult execute(const json& args) override { return m_handler(args); }
+
+    [[nodiscard]] ToolResult execute(const json& args) override {
+        if (m_cancelableHandler) {
+            return m_cancelableHandler(args, std::stop_token{});
+        }
+        return m_handler ? m_handler(args) : err("No handler defined");
+    }
+
+    [[nodiscard]] ToolResult execute(const json& args, std::stop_token stopToken) override {
+        if (m_cancelableHandler) {
+            return m_cancelableHandler(args, stopToken);
+        }
+        return m_handler ? m_handler(args) : err("No handler defined");
+    }
 
 private:
-    std::string m_name;
-    std::string m_description;
-    json        m_schema;
-    Handler     m_handler;
+    std::string       m_name;
+    std::string       m_description;
+    json              m_schema;
+    Handler           m_handler;
+    CancelableHandler m_cancelableHandler;
 };
 
 // ── Self-registration helper ─────────────────────────────────────────────────
