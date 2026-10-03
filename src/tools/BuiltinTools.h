@@ -24,6 +24,7 @@ class BrowserAutomation;
 class PermissionSystem;
 class SiteProfileRegistry;
 class LuaRuntime;
+class LuaToolLoader;
 
 
 // ── Discovery Tools ──────────────────────────────────────────────────────────
@@ -188,6 +189,23 @@ private:
     LuaRuntime* m_luaRuntime{nullptr};
 };
 
+class ReloadLuaToolsTool : public ITool {
+public:
+    explicit ReloadLuaToolsTool(LuaToolLoader* loader = nullptr) : m_loader(loader) {}
+
+    [[nodiscard]] std::string name() const override { return "reload_lua_tools"; }
+    [[nodiscard]] std::string description() const override {
+        return "Re-scan the custom tools folder and hot-reload all Lua script tools without server restart.";
+    }
+    [[nodiscard]] json parametersSchema() const override {
+        return {{"type", "object"}, {"properties", json::object()}};
+    }
+    [[nodiscard]] ToolResult execute(const json& args) override;
+
+private:
+    LuaToolLoader* m_loader{nullptr};
+};
+
 // ── Registration Dependency Container & Factory ──────────────────────────────
 struct BuiltinToolDependencies {
     UIAutomationScanner& uia;
@@ -195,6 +213,7 @@ struct BuiltinToolDependencies {
     PermissionSystem&    perms;
     SiteProfileRegistry& siteProfiles;
     LuaRuntime&          luaRuntime;
+    LuaToolLoader*       luaToolLoader = nullptr;
 };
 
 namespace BuiltinTools {

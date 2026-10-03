@@ -15,9 +15,14 @@ McpServer::McpServer(Config cfg, ToolRegistry& tools, std::istream& in, std::ost
       m_tools(tools),
       m_in(&in),
       m_out(&out),
-      m_threadPool(std::make_unique<ThreadPool>(m_cfg.workerThreads)) {}
+      m_threadPool(std::make_unique<ThreadPool>(m_cfg.workerThreads)) {
+    m_tools.setChangeCallback([this]() {
+        notifyToolsListChanged();
+    });
+}
 
 McpServer::~McpServer() {
+    m_tools.setChangeCallback(nullptr);
     stop();
 }
 
@@ -244,7 +249,7 @@ void McpServer::handleInitialize(const json& id, const json& params) {
         {"protocolVersion", negotiatedVersion},
         {"capabilities", {
             {"tools", {
-                {"listChanged", false}
+                {"listChanged", true}
             }}
         }},
         {"serverInfo", {
@@ -257,6 +262,16 @@ void McpServer::handleInitialize(const json& id, const json& params) {
     m_initialized = true;
 
     WINBOT_INFO("McpServer: Initialized successfully (protocol: {}).", negotiatedVersion);
+}
+
+void McpServer::notifyToolsListChanged() {
+    if (m_initialized) {
+        send({
+            {"jsonrpc", "2.0"},
+            {"method", "notifications/tools/list_changed"}
+        });
+        WINBOT_INFO("McpServer: Emitted notifications/tools/list_changed");
+    }
 }
 
 // ── tools/list ───────────────────────────────────────────────────────────────

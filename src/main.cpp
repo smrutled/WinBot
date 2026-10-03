@@ -11,6 +11,7 @@
 #include "platform/browser/BrowserAutomation.h"
 #include "services/LuaRuntime.h"
 #include "services/SiteProfileRegistry.h"
+#include "services/LuaToolLoader.h"
 #include "tools/BuiltinTools.h"
 
 #include <iostream>
@@ -27,6 +28,7 @@ static json loadConfig(const std::filesystem::path& path) {
             {"action_delay_ms",    200},
             {"browser_cdp_port",   9222},
             {"browser_exe",        ""},
+            {"lua_tools_dir",      "data/tools"},
             {"mcp_servers",        json::array()},
             {"scheduled_tasks",    json::array()},
             {"permission", {
@@ -165,8 +167,8 @@ int main(int argc, char* argv[]) {
     // ── Audit log ─────────────────────────────────────────────────────────────
     AuditLog auditLog{ exeDir / "data" / "audit.log" };
 
-    // ── Permission system ─────────────────────────────────────────────────────
     auto permCfg = buildPermConfig(cfg);
+    permCfg.allowedPaths.push_back(exeDir.string());
     // In MCP mode, disable interactive prompts — they would deadlock since
     // stdin is controlled by the MCP bridge, not a human operator.
     if (g_mcpMode) {
@@ -198,14 +200,24 @@ int main(int argc, char* argv[]) {
 
     LuaRuntime luaRuntime{ browser, uia, siteProfiles, &perms };
 
-    // ── Tool registry + built-in tools registration ───────────────────────────
+    // ── Tool registry + dynamic Lua tools + built-in tools registration ───────
     ToolRegistry tools;
+
+    LuaToolLoader luaToolLoader{
+        exeDir / cfg.value("lua_tools_dir", "data/tools"),
+        luaRuntime,
+        tools
+    };
+    size_t loadedLuaCount = luaToolLoader.loadAll();
+    WINBOT_INFO("Loaded {} custom Lua tool(s) from {}", loadedLuaCount, luaToolLoader.toolsDir().string());
+
     BuiltinTools::registerAll(tools, {
-        .uia          = uia,
-        .browser      = browser,
-        .perms        = perms,
-        .siteProfiles = siteProfiles,
-        .luaRuntime   = luaRuntime
+        .uia           = uia,
+        .browser       = browser,
+        .perms         = perms,
+        .siteProfiles  = siteProfiles,
+        .luaRuntime    = luaRuntime,
+        .luaToolLoader = &luaToolLoader
     });
 
     if (g_mcpMode) {

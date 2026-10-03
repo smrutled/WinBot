@@ -5,6 +5,8 @@
 #include <string_view>
 #include <filesystem>
 #include <chrono>
+#include <mutex>
+#include <expected>
 
 // Forward declarations
 class BrowserAutomation;
@@ -13,6 +15,13 @@ class SiteProfileRegistry;
 class PermissionSystem;
 class UIHandle;
 struct lua_State;
+
+struct LuaToolDefinition {
+    std::string name;
+    std::string description;
+    json parameters;
+    std::filesystem::path scriptPath;
+};
 
 class LuaRuntime {
 public:
@@ -30,6 +39,12 @@ public:
     // Execute a Lua file from disk
     ToolResult execFile(const std::filesystem::path& path);
 
+    // Load tool metadata and schema from a Lua tool script (supports single or multiple tools)
+    [[nodiscard]] std::expected<std::vector<LuaToolDefinition>, std::string> loadToolDefinitions(const std::filesystem::path& path);
+
+    // Execute a specific tool from a Lua script with arguments
+    ToolResult executeTool(const std::filesystem::path& path, const std::string& toolName, const json& args);
+
     // Timeout & instruction limit control
     void setTimeout(std::chrono::milliseconds timeout) noexcept { m_timeout = timeout; }
     [[nodiscard]] std::chrono::milliseconds timeout() const noexcept { return m_timeout; }
@@ -44,6 +59,7 @@ public:
     [[nodiscard]] lua_State* state() const noexcept { return L; }
 
 private:
+    mutable std::mutex m_luaMutex;
     lua_State* L{nullptr};
     BrowserAutomation* m_browser{nullptr};
     UIAutomationScanner* m_uia{nullptr};

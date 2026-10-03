@@ -7,6 +7,7 @@
 #include "security/PermissionSystem.h"
 #include "services/SiteProfileRegistry.h"
 #include "services/LuaRuntime.h"
+#include "services/LuaToolLoader.h"
 
 #include <format>
 #include <sstream>
@@ -167,6 +168,18 @@ ToolResult LuaRunTool::execute(const json& args) {
     return m_luaRuntime->execFile(args.value("path", ""));
 }
 
+ToolResult ReloadLuaToolsTool::execute(const json&) {
+    if (!m_loader) return err("LuaToolLoader is not configured");
+    size_t count = m_loader->reload();
+    auto tools = m_loader->loadedToolNames();
+    std::string list;
+    for (size_t i = 0; i < tools.size(); ++i) {
+        if (i > 0) list += ", ";
+        list += tools[i];
+    }
+    return ok(std::format("Reloaded {} Lua tool(s): [{}]", count, list));
+}
+
 // ── Self-Registration ────────────────────────────────────────────────────────
 REGISTER_TOOL_WITH_DEPS(ListToolsTool, [](const ToolDependencies& d) {
     return std::make_unique<ListToolsTool>(d.registry);
@@ -189,6 +202,9 @@ REGISTER_TOOL_WITH_DEPS(LuaExecTool, [](const ToolDependencies& d) {
 REGISTER_TOOL_WITH_DEPS(LuaRunTool, [](const ToolDependencies& d) {
     return std::make_unique<LuaRunTool>(d.luaRuntime);
 });
+REGISTER_TOOL_WITH_DEPS(ReloadLuaToolsTool, [](const ToolDependencies& d) {
+    return std::make_unique<ReloadLuaToolsTool>(d.luaToolLoader);
+});
 
 void initBuiltinTools() {}
 
@@ -207,12 +223,13 @@ void BuiltinTools::registerAll(ToolRegistry& registry, const BuiltinToolDependen
     initAllTools();
 
     ToolDependencies td{
-        .uia          = &deps.uia,
-        .browser      = &deps.browser,
-        .perms        = &deps.perms,
-        .siteProfiles = &deps.siteProfiles,
-        .luaRuntime   = &deps.luaRuntime,
-        .registry     = &registry
+        .uia           = &deps.uia,
+        .browser       = &deps.browser,
+        .perms         = &deps.perms,
+        .siteProfiles  = &deps.siteProfiles,
+        .luaRuntime    = &deps.luaRuntime,
+        .luaToolLoader = deps.luaToolLoader,
+        .registry      = &registry
     };
 
     registry.registerSelfRegisteredTools(td);

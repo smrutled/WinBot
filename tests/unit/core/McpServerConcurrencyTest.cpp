@@ -216,3 +216,65 @@ TEST(McpServerConcurrencyTest, HighConcurrencyStreamIntegrity) {
 
     EXPECT_EQ(responses.size(), static_cast<size_t>(kNumRequests + 1));
 }
+
+TEST(McpServerTest, EmitsToolsListChangedNotification) {
+    ToolRegistry registry;
+    registry.registerTool(std::make_unique<FastTool>());
+
+    std::stringstream in;
+    std::stringstream out;
+
+    in << json({
+        {"jsonrpc", "2.0"},
+        {"id", 1},
+        {"method", "initialize"},
+        {"params", {{"protocolVersion", "2024-11-05"}}}
+    }).dump() << "\n";
+
+    McpServer::Config cfg{
+        .serverName = "TestWinBot",
+        .serverVersion = "1.0",
+        .actionDelayMs = 0,
+        .workerThreads = 2
+    };
+
+    McpServer server(cfg, registry, in, out);
+
+    std::jthread serverThread([&]() {
+        server.run();
+    });
+
+    // Wait until initialized
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Mutate registry dynamically while server is active
+    registry.registerTool(std::make_unique<SlowCancelableTool>());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    server.stop();
+    if (serverThread.joinable()) {
+        serverThread.join();
+    }
+
+    std::string line;
+    bool foundListChangedCapability = false;
+    bool receivedListChangedNotification = false;
+
+    while (std::getline(out, line)) {
+        if (!line.empty() && line.find_first_not_of(" \t\r\n") != std::string::npos) {
+            json msg = json::parse(line);
+            if (msg.contains("result") && msg["result"].contains("capabilities")) {
+                if (msg["result"]["capabilities"]["tools"]["listChanged"] == true) {
+                    foundListChangedCapability = true;
+                }
+            }
+            if (msg.value("method", "") == "notifications/tools/list_changed") {
+                receivedListChangedNotification = true;
+            }
+        }
+    }
+
+    EXPECT_TRUE(foundListChangedCapability);
+    EXPECT_TRUE(receivedListChangedNotification);
+}
+

@@ -5,6 +5,9 @@
 #include "platform/uia/UIADebugger.h"
 #include "platform/screen/ScreenCapture.h"
 #include "services/LuaRuntime.h"
+#include "services/LuaToolLoader.h"
+#include "tools/LuaScriptTool.h"
+#include "core/ToolRegistry.h"
 #include "tools/WindowTools.h"
 
 #include <windows.h>
@@ -339,5 +342,33 @@ TEST_F(CalculatorLiveGUITest, ControlCalculatorViaLuaScript) {
   auto res = lua.execString(script);
   ASSERT_TRUE(res.has_value()) << res.error();
   EXPECT_EQ(*res, "Display is 3");
+}
+
+TEST_F(CalculatorLiveGUITest, ControlCalculatorViaCalculatorLuaToolSuite) {
+  UIAutomationScanner scanner;
+  auto calcRes = scanner.waitForWindow("Calculator", 4000);
+  if (!calcRes.has_value()) {
+    GTEST_SKIP() << "Calculator window not instantiated in current session (requires interactive desktop): " 
+                 << calcRes.error();
+  }
+
+  LuaRuntime lua(&scanner);
+  ToolRegistry registry;
+  auto calcScriptPath = getProjectRoot() / "data/tools/calculator.lua";
+  ASSERT_TRUE(std::filesystem::exists(calcScriptPath))
+      << "Could not find calculator.lua at: " << calcScriptPath
+      << " (set WINBOT_ROOT environment variable to override)";
+
+  LuaToolLoader loader(calcScriptPath.parent_path(), lua, registry);
+  size_t count = loader.loadAll();
+  ASSERT_GE(count, 4);
+  ASSERT_TRUE(registry.hasTool("calc_calculate"));
+
+  auto res = registry.dispatch({
+    {"tool", "calc_calculate"},
+    {"args", {{"expression", "10 + 20"}}}
+  });
+  ASSERT_TRUE(res.has_value()) << res.error();
+  EXPECT_TRUE(res->find("30") != std::string::npos);
 }
 

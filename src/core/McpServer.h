@@ -55,6 +55,9 @@ public:
     // Cancel an active request by its JSON-RPC ID (formatted as string key)
     bool cancelRequest(const std::string& key);
 
+    // Emit notifications/tools/list_changed notification to connected MCP client
+    void notifyToolsListChanged();
+
 private:
     Config            m_cfg;
     ToolRegistry&     m_tools;

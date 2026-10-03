@@ -1,11 +1,50 @@
 #include "core/ToolRegistry.h"
 #include "security/PermissionSystem.h"
 
+void ToolRegistry::setChangeCallback(ChangeCallback cb) {
+    std::unique_lock lock(m_mutex);
+    m_changeCallback = std::move(cb);
+}
+
 void ToolRegistry::registerTool(std::unique_ptr<ITool> tool) {
+    registerOrReplaceTool(std::move(tool));
+}
+
+void ToolRegistry::registerOrReplaceTool(std::unique_ptr<ITool> tool) {
     if (!tool) return;
-    std::string name = tool->name();
-    m_index[name] = m_tools.size();
-    m_tools.push_back(std::move(tool));
+    ChangeCallback cb;
+    {
+        std::unique_lock lock(m_mutex);
+        std::string name = tool->name();
+        auto it = m_index.find(name);
+        if (it != m_index.end()) {
+            m_tools[it->second] = std::move(tool);
+        } else {
+            m_index[name] = m_tools.size();
+            m_tools.push_back(std::move(tool));
+        }
+        cb = m_changeCallback;
+    }
+    if (cb) cb();
+}
+
+bool ToolRegistry::unregisterTool(std::string_view name) {
+    ChangeCallback cb;
+    {
+        std::unique_lock lock(m_mutex);
+        auto it = m_index.find(std::string(name));
+        if (it == m_index.end()) return false;
+
+        size_t idx = it->second;
+        m_tools.erase(m_tools.begin() + idx);
+        m_index.clear();
+        for (size_t i = 0; i < m_tools.size(); ++i) {
+            m_index[m_tools[i]->name()] = i;
+        }
+        cb = m_changeCallback;
+    }
+    if (cb) cb();
+    return true;
 }
 
 void ToolRegistry::registerSelfRegisteredTools(const ToolDependencies& deps) {
@@ -23,6 +62,7 @@ ToolResult ToolRegistry::dispatch(const json& toolCall, std::stop_token stopToke
     std::string toolName = toolCall.value("tool", "");
     if (toolName.empty()) return err("Tool call missing 'tool' field");
 
+    std::shared_lock lock(m_mutex);
     auto it = m_index.find(toolName);
     if (it == m_index.end())
         return err(std::format("Unknown tool: '{}'", toolName));
@@ -54,6 +94,7 @@ ToolResult ToolRegistry::dispatchRaw(std::string_view jsonStr, std::stop_token s
 }
 
 std::string ToolRegistry::buildToolsPrompt() const {
+    std::shared_lock lock(m_mutex);
     std::string prompt = "## Available Tools\n\n"
         "Respond with a single JSON object selecting exactly one tool per turn:\n"
         "```json\n{\"tool\": \"<name>\", \"args\": {<parameters>}}\n```\n\n"
@@ -75,6 +116,7 @@ std::string ToolRegistry::buildToolsPrompt() const {
 }
 
 json ToolRegistry::buildToolsSchema() const {
+    std::shared_lock lock(m_mutex);
     json arr = json::array();
     for (const auto& t : m_tools) {
         arr.push_back({
@@ -87,5 +129,6 @@ json ToolRegistry::buildToolsSchema() const {
 }
 
 bool ToolRegistry::hasTool(std::string_view name) const {
+    std::shared_lock lock(m_mutex);
     return m_index.contains(std::string(name));
 }

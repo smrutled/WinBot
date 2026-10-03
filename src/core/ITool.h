@@ -15,15 +15,17 @@ class BrowserAutomation;
 class PermissionSystem;
 class SiteProfileRegistry;
 class LuaRuntime;
+class LuaToolLoader;
 class ToolRegistry;
 
 struct ToolDependencies {
-    UIAutomationScanner*   uia          = nullptr;
-    BrowserAutomation*     browser      = nullptr;
-    PermissionSystem*      perms        = nullptr;
-    SiteProfileRegistry*   siteProfiles = nullptr;
-    LuaRuntime*            luaRuntime   = nullptr;
-    const ToolRegistry*    registry     = nullptr;
+    UIAutomationScanner*   uia           = nullptr;
+    BrowserAutomation*     browser       = nullptr;
+    PermissionSystem*      perms         = nullptr;
+    SiteProfileRegistry*   siteProfiles  = nullptr;
+    LuaRuntime*            luaRuntime    = nullptr;
+    LuaToolLoader*         luaToolLoader = nullptr;
+    const ToolRegistry*    registry      = nullptr;
 };
 
 // ── ITool ─────────────────────────────────────────────────────────────────────

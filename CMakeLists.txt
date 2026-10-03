@@ -90,6 +90,7 @@ set(PLATFORM_SOURCES
 
 set(SERVICES_SOURCES
     src/services/LuaRuntime.cpp
+    src/services/LuaToolLoader.cpp
     src/services/Scheduler.cpp
     src/services/SiteProfileRegistry.cpp
 )
@@ -99,6 +100,7 @@ set(TOOL_SOURCES
     src/tools/BuiltinTools.cpp
     src/tools/FileTools.cpp
     src/tools/InputTools.cpp
+    src/tools/LuaScriptTool.cpp
     src/tools/ScreenTools.cpp
     src/tools/ShellTools.cpp
     src/tools/WindowTools.cpp
@@ -155,11 +157,17 @@ if(MSVC)
     )
 endif()
 
-# ── Output directory ──────────────────────────────────────────────────────────
 set_target_properties(WinBot PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+)
+
+# Deploy data directory (tools, site profiles) alongside the binary
+add_custom_command(TARGET WinBot POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/data"
+        "$<TARGET_FILE_DIR:WinBot>/data"
 )
 
 # ── Tests & Benchmarks ────────────────────────────────────────────────────────
@@ -192,6 +200,10 @@ if(BUILD_TESTING)
         GTest::gtest_main
     )
 
+    target_compile_definitions(WinBot_Tests PRIVATE
+        WINBOT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+
     if(MSVC)
         target_compile_options(WinBot_Tests PRIVATE
             /W4
@@ -208,9 +220,16 @@ if(BUILD_TESTING)
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
     )
 
+    add_custom_command(TARGET WinBot_Tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/data"
+            "$<TARGET_FILE_DIR:WinBot_Tests>/data"
+    )
+
     include(GoogleTest)
     gtest_discover_tests(WinBot_Tests
         DISCOVERY_TIMEOUT 60
+        PROPERTIES ENVIRONMENT "WINBOT_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
     )
 endif()
 

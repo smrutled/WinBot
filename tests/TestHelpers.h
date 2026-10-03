@@ -6,12 +6,58 @@
 #include <string>
 #include <vector>
 #include <format>
+#include <filesystem>
+#include <cstdlib>
+
+// ── Project Root Resolution ───────────────────────────────────────────────────
+// Returns the WinBot repository root directory using the WINBOT_ROOT environment
+// variable, with a compile-time fallback to WINBOT_SOURCE_DIR if not set.
+inline std::filesystem::path getProjectRoot() {
+#if defined(_MSC_VER)
+    char* buf = nullptr;
+    size_t sz = 0;
+    if (_dupenv_s(&buf, &sz, "WINBOT_ROOT") == 0 && buf != nullptr) {
+        std::filesystem::path p(buf);
+        free(buf);
+        if (!p.empty()) return p;
+    }
+#else
+    if (const char* env = std::getenv("WINBOT_ROOT")) {
+        if (*env != '\0') return std::filesystem::path(env);
+    }
+#endif
+
+#ifdef WINBOT_SOURCE_DIR
+    return std::filesystem::path(WINBOT_SOURCE_DIR);
+#else
+    return std::filesystem::current_path();
+#endif
+}
 
 // ── GoogleTest COM Environment (RAII) ────────────────────────────────────────
 // Ensures COM is initialized once for the test run and properly cleaned up.
 class ComEnvironment : public ::testing::Environment {
 public:
     void SetUp() override {
+        // Initialize WINBOT_ROOT environment variable if not already set
+#if defined(_MSC_VER)
+        char* buf = nullptr;
+        size_t sz = 0;
+        if (_dupenv_s(&buf, &sz, "WINBOT_ROOT") == 0 && buf != nullptr) {
+            free(buf);
+        } else {
+#ifdef WINBOT_SOURCE_DIR
+            _putenv_s("WINBOT_ROOT", WINBOT_SOURCE_DIR);
+#endif
+        }
+#else
+        if (!std::getenv("WINBOT_ROOT")) {
+#ifdef WINBOT_SOURCE_DIR
+            setenv("WINBOT_ROOT", WINBOT_SOURCE_DIR, 0);
+#endif
+        }
+#endif
+
         HRESULT hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         // RPC_E_CHANGED_MODE (0x80010106) is acceptable if already initialized in another mode
         if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {

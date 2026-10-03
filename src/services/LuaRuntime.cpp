@@ -8,6 +8,7 @@
 #include "tools/InputTools.h"
 #include "tools/ShellTools.h"
 #include "tools/FileTools.h"
+#include <fstream>
 
 extern "C" {
 #include <lua.h>
@@ -139,6 +140,85 @@ void LuaRuntime::sandboxEnvironment() {
     lua_setglobal(L, "loadfile");
 }
 
+static json luaValueToJson(lua_State* L, int idx) {
+    int type = lua_type(L, idx);
+    switch (type) {
+        case LUA_TNIL:
+            return nullptr;
+        case LUA_TBOOLEAN:
+            return static_cast<bool>(lua_toboolean(L, idx));
+        case LUA_TNUMBER:
+            if (lua_isinteger(L, idx)) return lua_tointeger(L, idx);
+            return lua_tonumber(L, idx);
+        case LUA_TSTRING:
+            return std::string(lua_tostring(L, idx));
+        case LUA_TTABLE: {
+            int absIdx = lua_absindex(L, idx);
+            lua_len(L, absIdx);
+            lua_Integer len = lua_tointeger(L, -1);
+            lua_pop(L, 1);
+            if (len > 0) {
+                json arr = json::array();
+                for (lua_Integer i = 1; i <= len; ++i) {
+                    lua_geti(L, absIdx, i);
+                    arr.push_back(luaValueToJson(L, -1));
+                    lua_pop(L, 1);
+                }
+                return arr;
+            } else {
+                json obj = json::object();
+                lua_pushnil(L);
+                while (lua_next(L, absIdx) != 0) {
+                    // key is at -2, value is at -1
+                    std::string key;
+                    if (lua_isstring(L, -2)) {
+                        key = lua_tostring(L, -2);
+                    } else if (lua_isinteger(L, -2)) {
+                        key = std::to_string(lua_tointeger(L, -2));
+                    }
+                    if (!key.empty()) {
+                        obj[key] = luaValueToJson(L, -1);
+                    }
+                    lua_pop(L, 1);
+                }
+                return obj;
+            }
+        }
+        default:
+            return std::string(lua_typename(L, type));
+    }
+}
+
+static void pushJsonValue(lua_State* L, const json& j) {
+    if (j.is_null()) {
+        lua_pushnil(L);
+    } else if (j.is_boolean()) {
+        lua_pushboolean(L, j.get<bool>());
+    } else if (j.is_number_integer()) {
+        lua_pushinteger(L, j.get<lua_Integer>());
+    } else if (j.is_number_float()) {
+        lua_pushnumber(L, j.get<lua_Number>());
+    } else if (j.is_string()) {
+        std::string s = j.get<std::string>();
+        lua_pushlstring(L, s.data(), s.size());
+    } else if (j.is_array()) {
+        lua_createtable(L, static_cast<int>(j.size()), 0);
+        for (size_t i = 0; i < j.size(); ++i) {
+            pushJsonValue(L, j[i]);
+            lua_seti(L, -2, static_cast<lua_Integer>(i + 1));
+        }
+    } else if (j.is_object()) {
+        lua_createtable(L, 0, static_cast<int>(j.size()));
+        for (const auto& [k, v] : j.items()) {
+            lua_pushlstring(L, k.data(), k.size());
+            pushJsonValue(L, v);
+            lua_settable(L, -3);
+        }
+    } else {
+        lua_pushnil(L);
+    }
+}
+
 std::string LuaRuntime::extractReturnValue() {
     int top = lua_gettop(L);
     if (top == 0) {
@@ -165,10 +245,8 @@ std::string LuaRuntime::extractReturnValue() {
             result = "nil";
             break;
         case LUA_TTABLE: {
-            lua_len(L, -1);
-            lua_Integer len = lua_tointeger(L, -1);
-            lua_pop(L, 1);
-            result = std::format("[Lua table, len: {}]", len);
+            json j = luaValueToJson(L, -1);
+            result = j.dump();
             break;
         }
         case LUA_TUSERDATA: {
@@ -191,6 +269,7 @@ std::string LuaRuntime::extractReturnValue() {
 
 ToolResult LuaRuntime::execString(std::string_view code) {
     if (!L) return err("Lua state is null");
+    std::lock_guard<std::mutex> lock(m_luaMutex);
     try {
         HookContext ctx{
             .startTime = std::chrono::steady_clock::now(),
@@ -218,6 +297,7 @@ ToolResult LuaRuntime::execString(std::string_view code) {
 
 ToolResult LuaRuntime::execFile(const std::filesystem::path& path) {
     if (!L) return err("Lua state is null");
+    std::lock_guard<std::mutex> lock(m_luaMutex);
     if (m_perms) {
         auto check = m_perms->checkPath(path.string());
         if (!check) return err(std::format("Permission denied: {}", check.error()));
@@ -251,8 +331,312 @@ ToolResult LuaRuntime::execFile(const std::filesystem::path& path) {
     }
 }
 
+static LuaToolDefinition parseToolTable(lua_State* L, int tableIdx, const std::filesystem::path& path, const std::string& defaultName) {
+    LuaToolDefinition def;
+    def.scriptPath = path;
+    int absIdx = lua_absindex(L, tableIdx);
+
+    lua_getfield(L, absIdx, "name");
+    if (lua_isstring(L, -1)) {
+        def.name = lua_tostring(L, -1);
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, absIdx, "description");
+    if (lua_isstring(L, -1)) {
+        def.description = lua_tostring(L, -1);
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, absIdx, "parameters");
+    if (lua_istable(L, -1)) {
+        def.parameters = luaValueToJson(L, -1);
+    } else {
+        lua_pop(L, 1);
+        lua_getfield(L, absIdx, "schema");
+        if (lua_istable(L, -1)) {
+            def.parameters = luaValueToJson(L, -1);
+        }
+    }
+    lua_pop(L, 1);
+
+    if (def.name.empty()) {
+        def.name = defaultName;
+    }
+    if (def.description.empty()) {
+        def.description = std::format("Lua tool loaded from {}", path.filename().string());
+    }
+    if (def.parameters.empty() || def.parameters.is_null()) {
+        def.parameters = json{
+            {"type", "object"},
+            {"properties", json::object()}
+        };
+    }
+    return def;
+}
+
+std::expected<std::vector<LuaToolDefinition>, std::string> LuaRuntime::loadToolDefinitions(const std::filesystem::path& path) {
+    if (!L) return std::unexpected("Lua state is null");
+    std::lock_guard<std::mutex> lock(m_luaMutex);
+
+    if (m_perms) {
+        auto check = m_perms->checkPath(path.string());
+        if (!check) return std::unexpected(std::format("Permission denied: {}", check.error()));
+    }
+    if (!std::filesystem::exists(path)) {
+        return std::unexpected(std::format("Script file not found: {}", path.string()));
+    }
+
+    try {
+        HookContext ctx{
+            .startTime = std::chrono::steady_clock::now(),
+            .timeout = m_timeout,
+            .instructionCount = 0,
+            .maxInstructions = m_maxInstructions
+        };
+        ScopedLuaHook hookGuard(L, &ctx);
+
+        int status = luaL_dofile(L, path.string().c_str());
+        if (status != LUA_OK) {
+            std::string errMsg = lua_isstring(L, -1) ? lua_tostring(L, -1) : "Lua execution error";
+            lua_settop(L, 0);
+            return std::unexpected(std::format("Failed to load script {}: {}", path.filename().string(), errMsg));
+        }
+
+        std::vector<LuaToolDefinition> defs;
+        std::string baseStem = path.stem().string();
+
+        if (lua_istable(L, -1)) {
+            // Check if top-level table is an array of tools: return { tool1, tool2, ... }
+            lua_geti(L, -1, 1);
+            bool isArrayOfTools = false;
+            if (lua_istable(L, -1)) {
+                lua_getfield(L, -1, "execute");
+                bool hasExecute = lua_isfunction(L, -1);
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "name");
+                bool hasName = lua_isstring(L, -1);
+                lua_pop(L, 1);
+                isArrayOfTools = hasExecute || hasName;
+            }
+            lua_pop(L, 1);
+
+            if (isArrayOfTools) {
+                int idx = 1;
+                while (true) {
+                    lua_geti(L, -1, idx);
+                    if (!lua_istable(L, -1)) {
+                        lua_pop(L, 1);
+                        break;
+                    }
+                    std::string defName = std::format("{}_{}", baseStem, idx);
+                    defs.push_back(parseToolTable(L, -1, path, defName));
+                    lua_pop(L, 1);
+                    ++idx;
+                }
+            } else {
+                // Check if table contains a "tools" key: return { tools = { ... } }
+                lua_getfield(L, -1, "tools");
+                if (lua_istable(L, -1)) {
+                    int idx = 1;
+                    while (true) {
+                        lua_geti(L, -1, idx);
+                        if (!lua_istable(L, -1)) {
+                            lua_pop(L, 1);
+                            break;
+                        }
+                        std::string defName = std::format("{}_{}", baseStem, idx);
+                        defs.push_back(parseToolTable(L, -1, path, defName));
+                        lua_pop(L, 1);
+                        ++idx;
+                    }
+                    lua_pop(L, 1);
+                } else {
+                    lua_pop(L, 1);
+                    // Single tool table
+                    defs.push_back(parseToolTable(L, -1, path, baseStem));
+                }
+            }
+        } else {
+            // Script returned something else (e.g. a function or nil); treat as single tool
+            LuaToolDefinition def;
+            def.name = baseStem;
+            def.description = std::format("Lua tool loaded from {}", path.filename().string());
+            def.parameters = json{{"type", "object"}, {"properties", json::object()}};
+            def.scriptPath = path;
+            defs.push_back(std::move(def));
+        }
+
+        lua_settop(L, 0);
+
+        if (defs.empty()) {
+            LuaToolDefinition def;
+            def.name = baseStem;
+            def.description = std::format("Lua tool loaded from {}", path.filename().string());
+            def.parameters = json{{"type", "object"}, {"properties", json::object()}};
+            def.scriptPath = path;
+            defs.push_back(std::move(def));
+        }
+
+        return defs;
+    } catch (const std::exception& e) {
+        lua_settop(L, 0);
+        return std::unexpected(std::format("Exception loading tool definition {}: {}", path.filename().string(), e.what()));
+    }
+}
+
+ToolResult LuaRuntime::executeTool(const std::filesystem::path& path, const std::string& toolName, const json& args) {
+    if (!L) return err("Lua state is null");
+    std::lock_guard<std::mutex> lock(m_luaMutex);
+
+    if (m_perms) {
+        auto check = m_perms->checkPath(path.string());
+        if (!check) return err(std::format("Permission denied: {}", check.error()));
+    }
+    if (!std::filesystem::exists(path)) {
+        return err(std::format("Script file not found: {}", path.string()));
+    }
+
+    try {
+        HookContext ctx{
+            .startTime = std::chrono::steady_clock::now(),
+            .timeout = m_timeout,
+            .instructionCount = 0,
+            .maxInstructions = m_maxInstructions
+        };
+        ScopedLuaHook hookGuard(L, &ctx);
+
+        pushJsonValue(L, args);
+        lua_setglobal(L, "args");
+
+        int status = luaL_dofile(L, path.string().c_str());
+        if (status != LUA_OK) {
+            std::string errMsg = lua_isstring(L, -1) ? lua_tostring(L, -1) : "Lua execution error";
+            lua_settop(L, 0);
+            return err(errMsg);
+        }
+
+        auto executeFunctionAt = [&](int tableIdx) -> std::optional<ToolResult> {
+            int absIdx = lua_absindex(L, tableIdx);
+            lua_getfield(L, absIdx, "execute");
+            if (lua_isfunction(L, -1)) {
+                pushJsonValue(L, args);
+                if (lua_pcall(L, 1, 2, 0) != LUA_OK) {
+                    std::string errMsg = lua_isstring(L, -1) ? lua_tostring(L, -1) : "Lua execution error in tool.execute";
+                    lua_settop(L, 0);
+                    return err(errMsg);
+                }
+                if ((lua_isnil(L, -2) || (lua_isboolean(L, -2) && !lua_toboolean(L, -2))) && lua_isstring(L, -1)) {
+                    std::string errMsg = lua_tostring(L, -1);
+                    lua_settop(L, 0);
+                    return err(errMsg);
+                }
+                lua_pop(L, 1);
+                return ok(extractReturnValue());
+            }
+            lua_pop(L, 1);
+            return std::nullopt;
+        };
+
+        if (lua_istable(L, -1)) {
+            // Check if returned an array of tools: find matching name
+            lua_geti(L, -1, 1);
+            bool isArrayOfTools = false;
+            if (lua_istable(L, -1)) {
+                lua_getfield(L, -1, "execute");
+                bool hasExecute = lua_isfunction(L, -1);
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "name");
+                bool hasName = lua_isstring(L, -1);
+                lua_pop(L, 1);
+                isArrayOfTools = hasExecute || hasName;
+            }
+            lua_pop(L, 1);
+
+            if (isArrayOfTools) {
+                int idx = 1;
+                while (true) {
+                    lua_geti(L, -1, idx);
+                    if (!lua_istable(L, -1)) {
+                        lua_pop(L, 1);
+                        break;
+                    }
+                    lua_getfield(L, -1, "name");
+                    std::string n;
+                    if (lua_isstring(L, -1)) n = lua_tostring(L, -1);
+                    lua_pop(L, 1);
+
+                    if (n == toolName || (n.empty() && toolName == std::format("{}_{}", path.stem().string(), idx))) {
+                        auto res = executeFunctionAt(-1);
+                        lua_settop(L, 0);
+                        if (res) return *res;
+                        return err(std::format("Tool '{}' does not have an execute function", toolName));
+                    }
+                    lua_pop(L, 1);
+                    ++idx;
+                }
+            } else {
+                // Check if table contains "tools" array
+                lua_getfield(L, -1, "tools");
+                if (lua_istable(L, -1)) {
+                    int idx = 1;
+                    while (true) {
+                        lua_geti(L, -1, idx);
+                        if (!lua_istable(L, -1)) {
+                            lua_pop(L, 1);
+                            break;
+                        }
+                        lua_getfield(L, -1, "name");
+                        std::string n;
+                        if (lua_isstring(L, -1)) n = lua_tostring(L, -1);
+                        lua_pop(L, 1);
+
+                        if (n == toolName || (n.empty() && toolName == std::format("{}_{}", path.stem().string(), idx))) {
+                            auto res = executeFunctionAt(-1);
+                            lua_settop(L, 0);
+                            if (res) return *res;
+                            return err(std::format("Tool '{}' does not have an execute function", toolName));
+                        }
+                        lua_pop(L, 1);
+                        ++idx;
+                    }
+                    lua_pop(L, 1);
+                } else {
+                    lua_pop(L, 1);
+                    // Single tool table
+                    auto res = executeFunctionAt(-1);
+                    if (res) return *res;
+                }
+            }
+        } else if (lua_isfunction(L, -1)) {
+            pushJsonValue(L, args);
+            if (lua_pcall(L, 1, 2, 0) != LUA_OK) {
+                std::string errMsg = lua_isstring(L, -1) ? lua_tostring(L, -1) : "Lua execution error";
+                lua_settop(L, 0);
+                return err(errMsg);
+            }
+            if ((lua_isnil(L, -2) || (lua_isboolean(L, -2) && !lua_toboolean(L, -2))) && lua_isstring(L, -1)) {
+                std::string errMsg = lua_tostring(L, -1);
+                lua_settop(L, 0);
+                return err(errMsg);
+            }
+            lua_pop(L, 1);
+            return ok(extractReturnValue());
+        }
+
+        return ok(extractReturnValue());
+    } catch (const std::exception& e) {
+        lua_settop(L, 0);
+        return err(std::format("Lua runtime error: {}", e.what()));
+    } catch (...) {
+        lua_settop(L, 0);
+        return err("Lua runtime error: unknown exception");
+    }
+}
+
 bool LuaRuntime::setGlobalHandle(const std::string& name, const UIHandle& handle) {
     if (!L) return false;
+    std::lock_guard<std::mutex> lock(m_luaMutex);
     return luabridge::setGlobal(L, handle, name.c_str());
 }
 
