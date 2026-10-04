@@ -1,10 +1,22 @@
 #include "core/McpServer.h"
+#include "Common.h"
+#include "core/ITool.h"
+#include "core/ThreadPool.h"
+#include "core/ToolRegistry.h"
 #include "security/KillSwitch.h"
 
+#include <Windows.h>
+#include <atomic>
 #include <chrono>
+#include <exception>
+#include <format>
 #include <iostream>
-#include <sstream>
+#include <memory>
+#include <mutex>
+#include <stop_token>
+#include <string>
 #include <thread>
+#include <utility>
 
 // ──────────────────────────────────────────────────────────────────────────────
 McpServer::McpServer(Config cfg, ToolRegistry& tools)
@@ -33,8 +45,8 @@ McpServer::~McpServer() {
 
 void McpServer::send(const json& msg) {
     std::string line = msg.dump();
-    std::lock_guard<std::mutex> lock(m_sendMutex);
-    if (m_out) {
+    std::scoped_lock lock(m_sendMutex);
+    if (m_out != nullptr) {
         (*m_out) << line << '\n';
         m_out->flush();
     }
@@ -48,7 +60,7 @@ void McpServer::sendError(const json& id, int code, const std::string& message,
                            const json& data) {
     json err = {{"code", code}, {"message", message}};
     if (!data.is_null()) {
-        err["data"] = data;
+        err.emplace("data", data);
     }
     send({{"jsonrpc", "2.0"}, {"id", id}, {"error", err}});
 }
@@ -60,12 +72,22 @@ void McpServer::sendError(const json& id, int code, const std::string& message,
 static bool readLineStdin(std::string& line) {
     HANDLE hStdin = ::GetStdHandle(STD_INPUT_HANDLE);
     for (;;) {
-        if (KillSwitch::isTriggered()) return false;
-        if (std::cin.rdbuf()->in_avail() > 0) break; // already buffered
-        if (hStdin == nullptr || hStdin == INVALID_HANDLE_VALUE) break; // fall back to blocking read
+        if (KillSwitch::isTriggered()) {
+            return false;
+        }
+        if (std::cin.rdbuf()->in_avail() > 0) {
+            break; // already buffered
+        }
+        if (hStdin == nullptr || hStdin == INVALID_HANDLE_VALUE) {
+            break; // fall back to blocking read
+        }
         DWORD wr = ::WaitForSingleObject(hStdin, 250);
-        if (wr == WAIT_OBJECT_0) break;    // input available (or pipe closed)
-        if (wr != WAIT_TIMEOUT) return false;
+        if (wr == WAIT_OBJECT_0) {
+            break;    // input available (or pipe closed)
+        }
+        if (wr != WAIT_TIMEOUT) {
+            return false;
+        }
     }
     try {
         return static_cast<bool>(std::getline(std::cin, line));
@@ -106,8 +128,8 @@ void McpServer::run() {
             processMessage(msg);
         } catch (const std::exception& e) {
             WINBOT_ERROR("McpServer: Unhandled exception processing message: {}", e.what());
-            if (msg.contains("id") && !msg["id"].is_null()) {
-                sendError(msg["id"], kInternalError,
+            if (msg.contains("id") && !msg.at("id").is_null()) {
+                sendError(msg.at("id"), kInternalError,
                           std::format("Internal error: {}", e.what()));
             }
         }
@@ -123,7 +145,7 @@ void McpServer::run() {
 void McpServer::stop() {
     m_running = false;
     {
-        std::lock_guard<std::mutex> lock(m_requestsMutex);
+        std::scoped_lock lock(m_requestsMutex);
         for (auto& [key, req] : m_activeRequests) {
             req->cancelled.store(true, std::memory_order_release);
             req->stopSource.request_stop();
@@ -137,7 +159,7 @@ void McpServer::stop() {
 bool McpServer::cancelRequest(const std::string& key) {
     std::shared_ptr<ActiveRequest> req;
     {
-        std::lock_guard<std::mutex> lock(m_requestsMutex);
+        std::scoped_lock lock(m_requestsMutex);
         if (auto it = m_activeRequests.find(key); it != m_activeRequests.end()) {
             req = it->second;
         }
@@ -155,16 +177,16 @@ bool McpServer::cancelRequest(const std::string& key) {
 // ── Message dispatch ─────────────────────────────────────────────────────────
 void McpServer::processMessage(const json& msg) {
     // Validate JSON-RPC 2.0 envelope
-    if (!msg.contains("jsonrpc") || msg["jsonrpc"] != "2.0") {
-        if (msg.contains("id") && !msg["id"].is_null()) {
-            sendError(msg["id"], kInvalidRequest,
+    if (!msg.contains("jsonrpc") || msg.at("jsonrpc") != "2.0") {
+        if (msg.contains("id") && !msg.at("id").is_null()) {
+            sendError(msg.at("id"), kInvalidRequest,
                       "Invalid request: missing or wrong 'jsonrpc' field");
         }
         return;
     }
 
     std::string method = msg.value("method", "");
-    json id = msg.contains("id") ? msg["id"] : json(nullptr);
+    json id = msg.contains("id") ? msg.at("id") : json(nullptr);
     json params = msg.value("params", json::object());
 
     bool isNotification = !msg.contains("id");
@@ -228,7 +250,7 @@ void McpServer::processMessage(const json& msg) {
 // ── initialize ───────────────────────────────────────────────────────────────
 void McpServer::handleInitialize(const json& id, const json& params) {
     if (params.contains("clientInfo")) {
-        auto& ci = params["clientInfo"];
+        const auto& ci = params.at("clientInfo");
         WINBOT_INFO("McpServer: Client: {} {}",
                     ci.value("name", "unknown"),
                     ci.value("version", "?"));
@@ -304,20 +326,30 @@ void McpServer::handleToolsCall(const json& id, const json& params) {
 
     auto activeReq = std::make_shared<ActiveRequest>();
     {
-        std::lock_guard<std::mutex> lock(m_requestsMutex);
-        m_activeRequests[reqKey] = activeReq;
+        std::scoped_lock lock(m_requestsMutex);
+        m_activeRequests.insert_or_assign(reqKey, activeReq);
     }
 
     m_threadPool->enqueue([this, id, toolName, args, activeReq, reqKey]() {
         // Ensure request is deregistered from active map on exit
         struct ActiveGuard {
-            McpServer* server;
+            McpServer* server{nullptr};
             std::string key;
+
+            ActiveGuard(McpServer* s, std::string k)
+                : server(s), key(std::move(k)) {}
             ~ActiveGuard() {
-                std::lock_guard<std::mutex> lock(server->m_requestsMutex);
-                server->m_activeRequests.erase(key);
+                if (server != nullptr) {
+                    std::scoped_lock lock(server->m_requestsMutex);
+                    server->m_activeRequests.erase(key);
+                }
             }
-        } guard{this, reqKey};
+            ActiveGuard(const ActiveGuard&) = delete;
+            ActiveGuard& operator=(const ActiveGuard&) = delete;
+            ActiveGuard(ActiveGuard&&) = delete;
+            ActiveGuard& operator=(ActiveGuard&&) = delete;
+        };
+        ActiveGuard guard{this, reqKey};
 
         std::stop_token stopToken = activeReq->stopSource.get_token();
 
@@ -345,7 +377,7 @@ void McpServer::handleToolsCall(const json& id, const json& params) {
             try {
                 json parsed = json::parse(*result);
                 if (parsed.is_object() && parsed.contains("data") &&
-                    parsed.contains("format") && parsed["format"] == "png") {
+                    parsed.contains("format") && parsed.at("format") == "png") {
                     hasImage = true;
                     content.push_back({
                         {"type", "text"},
@@ -355,12 +387,12 @@ void McpServer::handleToolsCall(const json& id, const json& params) {
                     });
                     content.push_back({
                         {"type", "image"},
-                        {"data", parsed["data"]},
+                        {"data", parsed.at("data")},
                         {"mimeType", "image/png"}
                     });
                 }
-            } catch (...) {
-                // Not JSON or not an image
+            } catch (const std::exception& e) {
+                (void)e; // Not valid JSON or not an image
             }
 
             if (!hasImage) {
@@ -408,15 +440,15 @@ json McpServer::toolToMcpSchema(const ITool& tool) {
     json params = tool.parametersSchema();
 
     if (params.contains("properties")) {
-        inputSchema["properties"] = params["properties"];
+        inputSchema.emplace("properties", params.at("properties"));
     } else {
-        inputSchema["properties"] = json::object();
+        inputSchema.emplace("properties", json::object());
     }
 
     if (params.contains("required")) {
-        inputSchema["required"] = params["required"];
+        inputSchema.emplace("required", params.at("required"));
     }
 
-    mcpTool["inputSchema"] = inputSchema;
+    mcpTool.emplace("inputSchema", std::move(inputSchema));
     return mcpTool;
 }

@@ -6,13 +6,10 @@
 #include "platform/uia/UIHandle.h"
 #include "services/LuaRuntime.h"
 #include "services/LuaToolLoader.h"
-#include "tools/LuaScriptTool.h"
-#include "tools/WindowTools.h"
 #include <gtest/gtest.h>
 
 #include <atomic>
 #include <chrono>
-#include <print>
 #include <thread>
 #include <windows.h>
 
@@ -40,6 +37,11 @@ public:
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
   }
+
+  MockWin32Window(const MockWin32Window &) = delete;
+  MockWin32Window &operator=(const MockWin32Window &) = delete;
+  MockWin32Window(MockWin32Window &&) = delete;
+  MockWin32Window &operator=(MockWin32Window &&) = delete;
 
   ~MockWin32Window() {
     if (s_hwndMain) {
@@ -76,13 +78,16 @@ private:
     case WM_DESTROY:
       ::PostQuitMessage(0);
       return 0;
+    default:
+      break;
     }
     return ::DefWindowProcW(hwnd, msg, wParam, lParam);
   }
 
   void windowThreadProc() {
     HINSTANCE hInst = ::GetModuleHandleW(nullptr);
-    WNDCLASSEXW wc{sizeof(wc)};
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInst;
     wc.lpszClassName = L"WinBotMockAppClass";
@@ -237,7 +242,8 @@ protected:
   PROCESS_INFORMATION pi{};
 
   void SetUp() override {
-    STARTUPINFO si{sizeof(si)};
+    STARTUPINFO si{};
+    si.cb = sizeof(si);
     CreateProcessW(L"C:\\Windows\\System32\\notepad.exe", nullptr, nullptr,
                    nullptr, FALSE, 0, nullptr, nullptr, &si, &pi);
   }
@@ -277,7 +283,8 @@ protected:
   PROCESS_INFORMATION pi{};
 
   void SetUp() override {
-    STARTUPINFO si{sizeof(si)};
+    STARTUPINFO si{};
+    si.cb = sizeof(si);
     CreateProcessW(L"C:\\Windows\\System32\\calc.exe", nullptr, nullptr,
                    nullptr, FALSE, 0, nullptr, nullptr, &si, &pi);
   }
@@ -372,5 +379,5 @@ TEST_F(CalculatorLiveGUITest, ControlCalculatorViaCalculatorLuaToolSuite) {
   auto res = registry.dispatch(
       {{"tool", "calc_calculate"}, {"args", {{"expression", "10 + 20"}}}});
   ASSERT_TRUE(res.has_value()) << res.error();
-  EXPECT_TRUE(res->find("30") != std::string::npos);
+  EXPECT_TRUE(res->contains("30"));
 }

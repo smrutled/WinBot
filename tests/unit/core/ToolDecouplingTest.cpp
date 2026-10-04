@@ -3,7 +3,6 @@
 #include "core/ITool.h"
 #include "core/ToolRegistry.h"
 #include "core/ToolServer.h"
-#include "core/McpServer.h"
 #include "security/AuditLog.h"
 #include "security/PermissionSystem.h"
 #include "platform/uia/UIAutomationScanner.h"

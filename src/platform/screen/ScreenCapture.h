@@ -1,8 +1,14 @@
 #ifndef WINBOT_TOOLS_SCREENCAPTURE_H
 #define WINBOT_TOOLS_SCREENCAPTURE_H
-#include "Common.h"
-#include <vector>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <expected>
 #include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
 // ── ScreenCapture ─────────────────────────────────────────────────────────────
 // Captures the desktop (or a specific window) using GDI BitBlt and encodes

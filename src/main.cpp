@@ -3,7 +3,6 @@
 #include "core/ToolRegistry.h"
 #include "core/ToolServer.h"
 #include "platform/browser/BrowserAutomation.h"
-#include "platform/screen/ScreenCapture.h"
 #include "platform/uia/UIADebugger.h"
 #include "platform/uia/UIAutomationScanner.h"
 #include "security/AuditLog.h"
@@ -17,8 +16,6 @@
 
 #include <filesystem>
 #include <fstream>
-#include <iostream>
-#include <thread>
 
 
 // ── Load config.json ─────────────────────────────────────────────────────────
@@ -68,14 +65,18 @@ static json loadConfig(const std::filesystem::path &path) {
 static PermissionSystem::Config buildPermConfig(const json &cfg) {
   PermissionSystem::Config perm;
   const json &p = cfg.value("permission", json::object());
-  for (const auto &v : p.value("allowed_paths", json::array()))
+  for (const auto &v : p.value("allowed_paths", json::array())) {
     perm.allowedPaths.push_back(v);
-  for (const auto &v : p.value("blocked_paths", json::array()))
+  }
+  for (const auto &v : p.value("blocked_paths", json::array())) {
     perm.blockedPaths.push_back(v);
-  for (const auto &v : p.value("blocked_processes", json::array()))
+  }
+  for (const auto &v : p.value("blocked_processes", json::array())) {
     perm.blockedProcesses.push_back(v);
-  for (const auto &v : p.value("dangerous_cmd_patterns", json::array()))
+  }
+  for (const auto &v : p.value("dangerous_cmd_patterns", json::array())) {
     perm.dangerousCmdPatterns.push_back(v);
+  }
   perm.confirmShellCommands = p.value("confirm_shell_commands", true);
   perm.confirmFileDelete = p.value("confirm_file_delete", true);
   perm.confirmProcessKill = p.value("confirm_process_kill", true);
@@ -161,12 +162,12 @@ static std::filesystem::path resolveAppPath(const std::filesystem::path &exeDir,
     return exeDir / subPath;
   }
   // 2. WINBOT_ROOT environment variable (if set)
-#if defined(_MSC_VER)
-  char *envBuf = nullptr;
+#ifdef _MSC_VER
+  char *rawEnvBuf = nullptr;
   size_t envSz = 0;
-  if (_dupenv_s(&envBuf, &envSz, "WINBOT_ROOT") == 0 && envBuf != nullptr) {
-    std::filesystem::path root(envBuf);
-    free(envBuf);
+  if (_dupenv_s(&rawEnvBuf, &envSz, "WINBOT_ROOT") == 0 && rawEnvBuf != nullptr) {
+    std::unique_ptr<char, decltype(&std::free)> envBuf(rawEnvBuf, &std::free);
+    std::filesystem::path root(envBuf.get());
     if (!root.empty() && std::filesystem::exists(root / subPath)) {
       return root / subPath;
     }
@@ -215,7 +216,7 @@ int main(int argc, char *argv[]) {
   }
 
   if (!g_mcpMode) {
-    std::fputs("\n"
+    (void)std::fputs("\n"
                "__        __ _       ____        _\n"
                "\\ \\      / /(_)_ __ | __ )  ___ | |_\n"
                " \\ \\ /\\ / / | | '_ \\|  _ \\ / _ \\| __|\n"

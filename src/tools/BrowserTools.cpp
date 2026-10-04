@@ -47,7 +47,9 @@ json BrowserNavigateTool::parametersSchema() const {
 }
 
 ToolResult BrowserNavigateTool::execute(const json& args) {
-    if (!m_browser) return err("BrowserAutomation not available");
+    if (m_browser == nullptr) {
+        return err("BrowserAutomation not available");
+    }
     return tools::browserNavigate(*m_browser, args.value("url", ""));
 }
 
@@ -61,7 +63,9 @@ json BrowserClickTool::parametersSchema() const {
 }
 
 ToolResult BrowserClickTool::execute(const json& args) {
-    if (!m_browser) return err("BrowserAutomation not available");
+    if (m_browser == nullptr) {
+        return err("BrowserAutomation not available");
+    }
     return tools::browserClick(*m_browser, args.value("selector", ""));
 }
 
@@ -78,19 +82,25 @@ json BrowserTypeTool::parametersSchema() const {
 }
 
 ToolResult BrowserTypeTool::execute(const json& args) {
-    if (!m_browser) return err("BrowserAutomation not available");
+    if (m_browser == nullptr) {
+        return err("BrowserAutomation not available");
+    }
     return tools::browserType(*m_browser, args.value("selector", ""), args.value("text", ""));
 }
 
 // ── BrowserGetDomTool ────────────────────────────────────────────────────────
-ToolResult BrowserGetDomTool::execute(const json&) {
-    if (!m_browser) return err("BrowserAutomation not available");
+ToolResult BrowserGetDomTool::execute(const json& /*args*/) {
+    if (m_browser == nullptr) {
+        return err("BrowserAutomation not available");
+    }
     return tools::browserGetDom(*m_browser);
 }
 
 // ── BrowserGetPageTextTool ───────────────────────────────────────────────────
-ToolResult BrowserGetPageTextTool::execute(const json&) {
-    if (!m_browser) return err("BrowserAutomation not available");
+ToolResult BrowserGetPageTextTool::execute(const json& /*args*/) {
+    if (m_browser == nullptr) {
+        return err("BrowserAutomation not available");
+    }
     return tools::browserGetPageText(*m_browser);
 }
 
@@ -104,24 +114,32 @@ json BrowserReadPageTool::parametersSchema() const {
 }
 
 ToolResult BrowserReadPageTool::execute(const json& args) {
-    if (!m_browser) return err("BrowserAutomation not available");
+    if (m_browser == nullptr) {
+        return err("BrowserAutomation not available");
+    }
     std::string url = args.value("url", "");
     auto navRes = tools::browserNavigate(*m_browser, url);
-    if (!navRes) return navRes;
+    if (!navRes) {
+        return navRes;
+    }
 
     ::Sleep(2000); // Wait for content to settle
 
-    if (m_siteProfiles) {
+    if (m_siteProfiles != nullptr) {
         const SiteProfile* profile = m_siteProfiles->match(url);
-        if (profile) {
+        if (profile != nullptr) {
             std::string js = "(() => { let out = {};\n";
             for (const auto& item : profile->items) {
                 js += std::format("try {{\n  let els = document.querySelectorAll('{}');\n", item.selector);
                 js += std::format("  if (els.length > 0) {{\n");
                 std::string extJs;
-                if (item.extract == "text") extJs = "e.innerText";
-                else if (item.extract == "html") extJs = "e.innerHTML";
-                else extJs = std::format("e.getAttribute('{}')", item.extract);
+                if (item.extract == "text") {
+                    extJs = "e.innerText";
+                } else if (item.extract == "html") {
+                    extJs = "e.innerHTML";
+                } else {
+                    extJs = std::format("e.getAttribute('{}')", item.extract);
+                }
 
                 if (item.isArray) {
                     js += std::format("    out['{}'] = Array.from(els).map(e => {}).filter(x => x);\n", item.name, extJs);
@@ -151,7 +169,9 @@ json BrowserSaveProfileTool::parametersSchema() const {
 }
 
 ToolResult BrowserSaveProfileTool::execute(const json& args) {
-    if (!m_siteProfiles) return err("SiteProfileRegistry not available");
+    if (m_siteProfiles == nullptr) {
+        return err("SiteProfileRegistry not available");
+    }
     return m_siteProfiles->saveProfile(args.value("name", ""), args.value("profile", json::object()));
 }
 
@@ -165,7 +185,9 @@ json BrowserEvalTool::parametersSchema() const {
 }
 
 ToolResult BrowserEvalTool::execute(const json& args) {
-    if (!m_browser) return err("BrowserAutomation not available");
+    if (m_browser == nullptr) {
+        return err("BrowserAutomation not available");
+    }
     return tools::browserEval(*m_browser, args.value("js", ""));
 }
 

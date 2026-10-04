@@ -5,6 +5,7 @@
 #include "core/ITool.h"
 #include "services/LuaRuntime.h"
 #include <filesystem>
+#include <stop_token>
 #include <string>
 
 // ── LuaScriptTool ─────────────────────────────────────────────────────────────
@@ -19,12 +20,18 @@ public:
                   std::filesystem::path scriptPath,
                   LuaRuntime& runtime);
 
+    ~LuaScriptTool() override = default;
+    LuaScriptTool(const LuaScriptTool&) = delete;
+    LuaScriptTool& operator=(const LuaScriptTool&) = delete;
+    LuaScriptTool(LuaScriptTool&&) noexcept = default;
+    LuaScriptTool& operator=(LuaScriptTool&&) noexcept = default;
+
     [[nodiscard]] std::string name() const override { return m_name; }
     [[nodiscard]] std::string description() const override { return m_description; }
     [[nodiscard]] json parametersSchema() const override { return m_schema; }
 
     [[nodiscard]] ToolResult execute(const json& args) override;
-    [[nodiscard]] ToolResult execute(const json& args, std::stop_token stopToken) override;
+    [[nodiscard]] ToolResult execute(const json& args, const std::stop_token& stopToken) override;
 
     [[nodiscard]] const std::filesystem::path& scriptPath() const noexcept { return m_scriptPath; }
 
@@ -33,7 +40,7 @@ private:
     std::string           m_description;
     json                  m_schema;
     std::filesystem::path m_scriptPath;
-    LuaRuntime&           m_runtime;
+    LuaRuntime*           m_runtime{nullptr};
 };
 
 #endif // WINBOT_TOOLS_LUASCRIPTTOOL_H

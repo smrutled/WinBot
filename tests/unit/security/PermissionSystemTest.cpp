@@ -19,8 +19,8 @@ protected:
         std::filesystem::remove_all(m_tempDir, ec);
     }
 
-    std::filesystem::path m_tempDir;
-    bool m_prevMcpMode{false};
+    std::filesystem::path m_tempDir; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+    bool m_prevMcpMode{false}; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
 };
 
 TEST_F(PermissionSystemTest, CheckPath_BlocksSubpathsOfBlockedDirectories) {
@@ -29,7 +29,7 @@ TEST_F(PermissionSystemTest, CheckPath_BlocksSubpathsOfBlockedDirectories) {
     cfg.allowedPaths = {"C:\\Windows"};
     PermissionSystem perms{cfg};
 
-    auto res = perms.checkPath("C:\\Windows\\System32\\drivers\\etc\\hosts");
+    auto res = perms.checkPath(R"(C:\Windows\System32\drivers\etc\hosts)");
     ASSERT_FALSE(res.has_value());
     EXPECT_TRUE(res.error().contains("Access denied"));
 }
@@ -61,7 +61,7 @@ TEST_F(PermissionSystemTest, CheckPath_NormalizesSlashesAndCase) {
 
     // Forward slashes in config, backslashes in query
     std::string forwardAllowed = allowedDir.string();
-    std::replace(forwardAllowed.begin(), forwardAllowed.end(), '\\', '/');
+    std::ranges::replace(forwardAllowed, '\\', '/');
 
     PermissionSystem::Config cfg;
     cfg.allowedPaths = {forwardAllowed};
@@ -108,9 +108,10 @@ TEST_F(PermissionSystemTest, CheckProcess_BlocksNumericPidOfProtectedProcess) {
     if (snap != INVALID_HANDLE_VALUE) {
         PROCESSENTRY32W entry{};
         entry.dwSize = sizeof(entry);
-        if (::Process32FirstW(snap, &entry)) {
-            do {
-                std::string name = wide_to_utf8(entry.szExeFile);
+        if (::Process32FirstW(snap, &entry) != FALSE) {
+            bool hasMore = true;
+            while (hasMore) {
+                std::string name = wide_to_utf8(std::wstring_view(static_cast<const wchar_t*>(entry.szExeFile)));
                 to_lower_inplace(name);
                 for (const auto& blocked : cfg.blockedProcesses) {
                     if (name == blocked) {
@@ -119,8 +120,11 @@ TEST_F(PermissionSystemTest, CheckProcess_BlocksNumericPidOfProtectedProcess) {
                         break;
                     }
                 }
-                if (protectedPid != 0) break;
-            } while (::Process32NextW(snap, &entry));
+                if (protectedPid != 0) {
+                    break;
+                }
+                hasMore = (::Process32NextW(snap, &entry) != FALSE);
+            }
         }
         ::CloseHandle(snap);
     }
@@ -197,7 +201,7 @@ TEST_F(PermissionSystemTest, CopyFileTool_GuardsSourceAndDestination) {
 
     // Source in blocked directory
     auto res1 = tool.execute(json{
-        {"src", "C:\\Windows\\System32\\kernel32.dll"},
+        {"src", R"(C:\Windows\System32\kernel32.dll)"},
         {"dst", (m_tempDir / "kernel32.dll").string()}
     });
     EXPECT_FALSE(res1.has_value());
@@ -206,7 +210,7 @@ TEST_F(PermissionSystemTest, CopyFileTool_GuardsSourceAndDestination) {
     // Destination in blocked directory
     auto res2 = tool.execute(json{
         {"src", (m_tempDir / "test.txt").string()},
-        {"dst", "C:\\Windows\\System32\\test.txt"}
+        {"dst", R"(C:\Windows\System32\test.txt)"}
     });
     EXPECT_FALSE(res2.has_value());
     EXPECT_TRUE(res2.error().contains("Access denied"));

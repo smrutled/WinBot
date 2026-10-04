@@ -11,12 +11,11 @@ void BrowserAutomation::setMouseMoveHandler(MouseMoveHandler handler) {
 }
 
 BrowserAutomation::BrowserAutomation(int debugPort, std::string_view browserExe)
-    : m_port(debugPort), m_browserExe(browserExe)
+    : m_port(debugPort)
+    , m_browserExe(browserExe)
+    , m_session(::WinHttpOpen(L"WinBot-CDP/1.0", WINHTTP_ACCESS_TYPE_NO_PROXY, nullptr, nullptr, 0))
 {
-    m_session = ::WinHttpOpen(L"WinBot-CDP/1.0",
-        WINHTTP_ACCESS_TYPE_NO_PROXY, nullptr, nullptr, 0);
-
-    if (!m_session) {
+    if (m_session == nullptr) {
         WINBOT_WARN("BrowserAutomation: WinHttpOpen failed");
         return;
     }
@@ -37,36 +36,51 @@ BrowserAutomation::BrowserAutomation(int debugPort, std::string_view browserExe)
 }
 
 BrowserAutomation::~BrowserAutomation() {
-    if (m_wsHandle) ::WinHttpCloseHandle(reinterpret_cast<HINTERNET>(m_wsHandle));
-    if (m_conn)     ::WinHttpCloseHandle(reinterpret_cast<HINTERNET>(m_conn));
-    if (m_session)  ::WinHttpCloseHandle(reinterpret_cast<HINTERNET>(m_session));
+    if (m_wsHandle != nullptr) {
+        ::WinHttpCloseHandle(reinterpret_cast<HINTERNET>(m_wsHandle));
+    }
+    if (m_conn != nullptr) {
+        ::WinHttpCloseHandle(reinterpret_cast<HINTERNET>(m_conn));
+    }
+    if (m_session != nullptr) {
+        ::WinHttpCloseHandle(reinterpret_cast<HINTERNET>(m_session));
+    }
 }
 
-std::expected<json, std::string> BrowserAutomation::fetchPageList() {
+std::expected<json, std::string> BrowserAutomation::fetchPageList() const {
     // Direct WinHTTP GET to avoid circular dependency with tools::httpGet
     std::wstring host = L"localhost";
     std::wstring path = std::format(L"/json/list");
 
     HINTERNET sess = ::WinHttpOpen(L"WinBot-CDP/1.0",
         WINHTTP_ACCESS_TYPE_NO_PROXY, nullptr, nullptr, 0);
-    if (!sess) return std::unexpected("WinHttpOpen failed");
+    if (sess == nullptr) {
+        return std::unexpected("WinHttpOpen failed");
+    }
 
-    HINTERNET conn = ::WinHttpConnect(sess, host.c_str(),
-        static_cast<INTERNET_PORT>(m_port), 0);
-    HINTERNET req  = conn ? ::WinHttpOpenRequest(conn, L"GET", path.c_str(),
+    HINTERNET conn = (sess != nullptr) ? ::WinHttpConnect(sess, host.c_str(),
+        static_cast<INTERNET_PORT>(m_port), 0) : nullptr;
+    HINTERNET req  = (conn != nullptr) ? ::WinHttpOpenRequest(conn, L"GET", path.c_str(),
         nullptr, nullptr, nullptr, 0) : nullptr;
 
-    if (!req || !::WinHttpSendRequest(req, nullptr, 0, nullptr, 0, 0, 0) ||
-        !::WinHttpReceiveResponse(req, nullptr)) {
-        if (req)  ::WinHttpCloseHandle(req);
-        if (conn) ::WinHttpCloseHandle(conn);
-        ::WinHttpCloseHandle(sess);
+    if (req == nullptr || ::WinHttpSendRequest(req, nullptr, 0, nullptr, 0, 0, 0) == 0 ||
+        ::WinHttpReceiveResponse(req, nullptr) == 0) {
+        if (req != nullptr)  {
+            ::WinHttpCloseHandle(req);
+        }
+        if (conn != nullptr) {
+            ::WinHttpCloseHandle(conn);
+        }
+        if (sess != nullptr) {
+            ::WinHttpCloseHandle(sess);
+        }
         return std::unexpected("Failed to connect to CDP endpoint");
     }
 
     std::string body;
-    DWORD avail = 0, read = 0;
-    while (::WinHttpQueryDataAvailable(req, &avail) && avail > 0) {
+    DWORD avail = 0;
+    DWORD read = 0;
+    while (::WinHttpQueryDataAvailable(req, &avail) != 0 && avail > 0) {
         std::string chunk(avail, '\0');
         ::WinHttpReadData(req, chunk.data(), avail, &read);
         body.append(chunk.data(), read);
@@ -75,13 +89,18 @@ std::expected<json, std::string> BrowserAutomation::fetchPageList() {
     ::WinHttpCloseHandle(conn);
     ::WinHttpCloseHandle(sess);
 
-    try { return json::parse(body); }
-    catch (...) { return std::unexpected("Failed to parse CDP page list"); }
+    try {
+        return json::parse(body);
+    } catch (const std::exception&) {
+        return std::unexpected("Failed to parse CDP page list");
+    }
 }
 
 bool BrowserAutomation::connectToPage() {
     auto pages = fetchPageList();
-    if (!pages || pages->empty()) return false;
+    if (!pages || pages->empty()) {
+        return false;
+    }
 
     // Find the first page (not DevTools, not extension)
     std::string wsUrl;
@@ -92,7 +111,9 @@ bool BrowserAutomation::connectToPage() {
             break;
         }
     }
-    if (wsUrl.empty()) return false;
+    if (wsUrl.empty()) {
+        return false;
+    }
 
     // Parse the WebSocket URL: ws://localhost:PORT/devtools/page/ID
     // We connect: host=localhost, port=debugPort, path=/devtools/page/ID
@@ -104,7 +125,9 @@ bool BrowserAutomation::connectToPage() {
         return false;
     }
 
-    if (!m_session) return false;
+    if (m_session == nullptr) {
+        return false;
+    }
 
     HINTERNET conn = ::WinHttpConnect(
         reinterpret_cast<HINTERNET>(m_session),
@@ -112,12 +135,16 @@ bool BrowserAutomation::connectToPage() {
         static_cast<INTERNET_PORT>(m_port),
         0
     );
-    if (!conn) return false;
+    if (conn == nullptr) {
+        return false;
+    }
     m_conn = conn;
 
     HINTERNET req = ::WinHttpOpenRequest(conn, L"GET", wPath.c_str(),
         nullptr, nullptr, nullptr, 0);
-    if (!req) return false;
+    if (req == nullptr) {
+        return false;
+    }
 
     // Upgrade to WebSocket
     ::WinHttpSetOption(req, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0);
@@ -125,15 +152,17 @@ bool BrowserAutomation::connectToPage() {
         L"Upgrade: websocket\r\nConnection: Upgrade",
         static_cast<DWORD>(-1), WINHTTP_ADDREQ_FLAG_ADD);
 
-    if (!::WinHttpSendRequest(req, nullptr, 0, nullptr, 0, 0, 0) ||
-        !::WinHttpReceiveResponse(req, nullptr)) {
+    if (::WinHttpSendRequest(req, nullptr, 0, nullptr, 0, 0, 0) == 0 ||
+        ::WinHttpReceiveResponse(req, nullptr) == 0) {
         ::WinHttpCloseHandle(req);
         return false;
     }
 
     HINTERNET ws = ::WinHttpWebSocketCompleteUpgrade(req, 0);
     ::WinHttpCloseHandle(req);
-    if (!ws) return false;
+    if (ws == nullptr) {
+        return false;
+    }
 
     m_wsHandle  = ws;
     m_connected = true;
@@ -142,7 +171,10 @@ bool BrowserAutomation::connectToPage() {
 }
 
 bool BrowserAutomation::wsSend(std::string_view message) {
-    if (!m_wsHandle) return false;
+    if (m_wsHandle == nullptr) {
+        return false;
+    }
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
     DWORD err = ::WinHttpWebSocketSend(
         reinterpret_cast<HINTERNET>(m_wsHandle),
         WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE,
@@ -157,7 +189,9 @@ bool BrowserAutomation::wsSend(std::string_view message) {
 }
 
 std::expected<std::string, std::string> BrowserAutomation::wsReceive(int /*timeoutMs*/) {
-    if (!m_wsHandle) return std::unexpected("Not connected");
+    if (m_wsHandle == nullptr) {
+        return std::unexpected("Not connected");
+    }
 
     std::string response;
     response.resize(65536);
@@ -175,7 +209,9 @@ std::expected<std::string, std::string> BrowserAutomation::wsReceive(int /*timeo
         m_connected = false;
         return std::unexpected(std::format("wsReceive error: {}", err));
     }
-    if (bytesRead > response.size()) bytesRead = static_cast<DWORD>(response.size());
+    if (bytesRead > response.size()) {
+        bytesRead = static_cast<DWORD>(response.size());
+    }
     response.resize(bytesRead);
     return response;
 }
@@ -183,39 +219,49 @@ std::expected<std::string, std::string> BrowserAutomation::wsReceive(int /*timeo
 std::expected<json, std::string> BrowserAutomation::sendCdpCommand(
     std::string_view method, json params)
 {
-    if (!m_connected) return std::unexpected("Not connected to browser");
+    if (!m_connected) {
+        return std::unexpected("Not connected to browser");
+    }
 
     json cmd = {
         { "id",     m_msgId++ },
         { "method", method    },
         { "params", params    }
     };
-    if (!wsSend(cmd.dump())) return std::unexpected("WebSocket send failed");
+    if (!wsSend(cmd.dump())) {
+        return std::unexpected("WebSocket send failed");
+    }
 
     // Wait for our response (matching id)
     auto start = std::chrono::steady_clock::now();
     while (true) {
         auto elapsed = std::chrono::steady_clock::now() - start;
-        if (elapsed > std::chrono::seconds(10)) return std::unexpected("CDP timeout");
+        if (elapsed > std::chrono::seconds(10)) {
+            return std::unexpected("CDP timeout");
+        }
 
         auto raw = wsReceive();
-        if (!raw) return std::unexpected(raw.error());
+        if (!raw) {
+            return std::unexpected(raw.error());
+        }
 
         try {
             json resp = json::parse(*raw);
-            if (resp.contains("id") && resp["id"] == cmd["id"]) {
+            if (resp.contains("id") && resp.at("id") == cmd.at("id")) {
                 if (resp.contains("error")) {
-                    return std::unexpected(resp["error"].value("message", "CDP error"));
+                    return std::unexpected(resp.at("error").value("message", "CDP error"));
                 }
                 return resp.value("result", json::object());
             }
-        } catch (...) {}
+        } catch (const std::exception&) {}
     }
 }
 
 ToolResult BrowserAutomation::navigate(std::string_view url) {
     auto result = sendCdpCommand("Page.navigate", { {"url", url} });
-    if (!result) return err(result.error());
+    if (!result) {
+        return err(result.error());
+    }
     // Wait for load
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     return ok(std::format("Navigated to {}", url));
@@ -226,12 +272,18 @@ ToolResult BrowserAutomation::evalJs(std::string_view js) {
         {"expression",    js   },
         {"returnByValue", true }
     });
-    if (!result) return err(result.error());
+    if (!result) {
+        return err(result.error());
+    }
     try {
-        auto& rv = (*result)["result"];
-        if (rv.contains("value")) return ok(rv["value"].dump());
+        auto& rv = (*result).at("result");
+        if (rv.contains("value")) {
+            return ok(rv.at("value").dump());
+        }
         return ok(rv.dump());
-    } catch (...) { return ok("{}"); }
+    } catch (const std::exception&) {
+        return ok("{}");
+    }
 }
 
 ToolResult BrowserAutomation::clickSelector(std::string_view selector) {
@@ -252,8 +304,8 @@ ToolResult BrowserAutomation::clickSelector(std::string_view selector) {
             // Check if returned JSON has x,y
             auto parsed = json::parse(*res);
             if (parsed.contains("x") && parsed.contains("y")) {
-                int sx = parsed["x"].get<int>();
-                int sy = parsed["y"].get<int>();
+                int sx = parsed.at("x").get<int>();
+                int sy = parsed.at("y").get<int>();
                 if (s_mouseMoveHandler) {
                     s_mouseMoveHandler(sx, sy);
                 } else {
@@ -261,7 +313,7 @@ ToolResult BrowserAutomation::clickSelector(std::string_view selector) {
                 }
                 ::Sleep(50);
             }
-        } catch (...) {}
+        } catch (const std::exception&) {}
     }
 
     // Always dispatch the actual click via JS to guarantee execution even if browser is in background
@@ -276,14 +328,20 @@ ToolResult BrowserAutomation::typeInto(std::string_view selector, std::string_vi
     // Focus the element first
     std::string focusJs = std::format(
         "document.querySelector('{}')?.focus()", selector);
-    (void)evalJs(focusJs);
+    auto focusRes = evalJs(focusJs);
+    if (!focusRes) {
+        return focusRes;
+    }
 
     // Type each character using CDP Input.dispatchKeyEvent
     for (char c : text) {
         std::string ch(1, c);
-        (void)sendCdpCommand("Input.dispatchKeyEvent", {
+        auto keyRes = sendCdpCommand("Input.dispatchKeyEvent", {
             {"type", "char"}, {"text", ch}
         });
+        if (!keyRes) {
+            return err(keyRes.error());
+        }
     }
     return ok(std::format("Typed '{}' into '{}'", text, selector));
 }
@@ -346,9 +404,13 @@ ToolResult BrowserAutomation::captureScreenshot() {
     auto result = sendCdpCommand("Page.captureScreenshot", {
         {"format", "png"}, {"quality", 80}
     });
-    if (!result) return err(result.error());
+    if (!result) {
+        return err(result.error());
+    }
     std::string base64 = result->value("data", "");
-    if (base64.empty()) return err("Screenshot returned empty data");
+    if (base64.empty()) {
+        return err("Screenshot returned empty data");
+    }
     return ok(std::format("screenshot:base64:{}", base64));
 }
 
@@ -359,11 +421,14 @@ ToolResult BrowserAutomation::waitForSelector(std::string_view selector, int tim
 
     while (true) {
         auto result = evalJs(js);
-        if (result && *result == "true") return ok(std::format("Element '{}' found", selector));
+        if (result && *result == "true") {
+            return ok(std::format("Element '{}' found", selector));
+        }
 
         auto elapsed = std::chrono::steady_clock::now() - start;
-        if (elapsed > std::chrono::milliseconds(timeoutMs))
+        if (elapsed > std::chrono::milliseconds(timeoutMs)) {
             return err(std::format("Timeout waiting for '{}'", selector));
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 }

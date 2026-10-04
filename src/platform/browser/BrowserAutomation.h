@@ -19,6 +19,8 @@ public:
 
   BrowserAutomation(const BrowserAutomation &) = delete;
   BrowserAutomation &operator=(const BrowserAutomation &) = delete;
+  BrowserAutomation(BrowserAutomation &&) = delete;
+  BrowserAutomation &operator=(BrowserAutomation &&) = delete;
 
   using MouseMoveHandler = std::function<void(int x, int y)>;
   static void setMouseMoveHandler(MouseMoveHandler handler);
@@ -75,7 +77,7 @@ private:
   wsReceive(int timeoutMs = 5000);
 
   // Fetch the list of debuggable pages via HTTP /json/list
-  [[nodiscard]] std::expected<json, std::string> fetchPageList();
+  [[nodiscard]] std::expected<json, std::string> fetchPageList() const;
 };
 
 #endif // WINBOT_BROWSERAUTOMATION_H

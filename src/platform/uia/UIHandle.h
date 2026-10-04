@@ -1,5 +1,6 @@
 #ifndef WINBOT_UIHANDLE_H
 #define WINBOT_UIHANDLE_H
+#include "Common.h"
 #include "platform/uia/UIAutomationScanner.h"
 #include <functional>
 

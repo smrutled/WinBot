@@ -16,10 +16,18 @@ static std::recursive_mutex s_inputMutex;
 static void sendMouseEvent(int x, int y, DWORD flags, DWORD data = 0) {
     int screenW = ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int screenH = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    if (screenW <= 0) screenW = ::GetSystemMetrics(SM_CXSCREEN);
-    if (screenH <= 0) screenH = ::GetSystemMetrics(SM_CYSCREEN);
-    if (screenW <= 0) screenW = 1920;
-    if (screenH <= 0) screenH = 1080;
+    if (screenW <= 0) {
+        screenW = ::GetSystemMetrics(SM_CXSCREEN);
+    }
+    if (screenH <= 0) {
+        screenH = ::GetSystemMetrics(SM_CYSCREEN);
+    }
+    if (screenW <= 0) {
+        screenW = 1920;
+    }
+    if (screenH <= 0) {
+        screenH = 1080;
+    }
     int screenX = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
     int screenY = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
 
@@ -33,14 +41,16 @@ static void sendMouseEvent(int x, int y, DWORD flags, DWORD data = 0) {
 }
 
 ToolResult moveMouse(int x, int y, bool humanMove) {
-    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
-    if (humanMove) return humanMouseMove(x, y);
+    std::scoped_lock lock(s_inputMutex);
+    if (humanMove) {
+        return humanMouseMove(x, y);
+    }
     sendMouseEvent(x, y, MOUSEEVENTF_MOVE);
     return ok(std::format("Mouse moved to ({}, {})", x, y));
 }
 
 ToolResult humanMouseMove(int toX, int toY) {
-    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
+    std::scoped_lock lock(s_inputMutex);
     POINT from;
     ::GetCursorPos(&from);
     
@@ -99,22 +109,29 @@ ToolResult humanMouseMove(int toX, int toY) {
 }
 
 ToolResult click(int x, int y, std::string_view button, bool humanMove) {
-    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
+    std::scoped_lock lock(s_inputMutex);
     if (humanMove) {
-        (void)humanMouseMove(x, y);
+        auto moveRes = humanMouseMove(x, y);
+        if (!moveRes) {
+            return moveRes;
+        }
         ::Sleep(30 + (rand() % 40));
     } else {
         sendMouseEvent(x, y, MOUSEEVENTF_MOVE);
         ::Sleep(30);
     }
 
-    DWORD downFlag{}, upFlag{};
+    DWORD downFlag{};
+    DWORD upFlag{};
     if (button == "right") {
-        downFlag = MOUSEEVENTF_RIGHTDOWN; upFlag = MOUSEEVENTF_RIGHTUP;
+        downFlag = MOUSEEVENTF_RIGHTDOWN;
+        upFlag = MOUSEEVENTF_RIGHTUP;
     } else if (button == "middle") {
-        downFlag = MOUSEEVENTF_MIDDLEDOWN; upFlag = MOUSEEVENTF_MIDDLEUP;
+        downFlag = MOUSEEVENTF_MIDDLEDOWN;
+        upFlag = MOUSEEVENTF_MIDDLEUP;
     } else {
-        downFlag = MOUSEEVENTF_LEFTDOWN; upFlag = MOUSEEVENTF_LEFTUP;
+        downFlag = MOUSEEVENTF_LEFTDOWN;
+        upFlag = MOUSEEVENTF_LEFTUP;
     }
     sendMouseEvent(x, y, downFlag);
     ::Sleep(30);
@@ -123,22 +140,34 @@ ToolResult click(int x, int y, std::string_view button, bool humanMove) {
 }
 
 ToolResult doubleClick(int x, int y, bool humanMove) {
-    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
-    (void)click(x, y, "left", humanMove);
+    std::scoped_lock lock(s_inputMutex);
+    auto click1 = click(x, y, "left", humanMove);
+    if (!click1) {
+        return click1;
+    }
     ::Sleep(50);
-    (void)click(x, y, "left", false); // Second click doesn't need to move again
+    auto click2 = click(x, y, "left", false); // Second click doesn't need to move again
+    if (!click2) {
+        return click2;
+    }
     return ok(std::format("Double click at ({}, {})", x, y));
 }
 
 ToolResult drag(int x1, int y1, int x2, int y2, bool humanMove) {
-    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
+    std::scoped_lock lock(s_inputMutex);
     if (humanMove) {
-        (void)humanMouseMove(x1, y1);
+        auto move1 = humanMouseMove(x1, y1);
+        if (!move1) {
+            return move1;
+        }
         ::Sleep(30 + (rand() % 40));
         sendMouseEvent(x1, y1, MOUSEEVENTF_LEFTDOWN);
         ::Sleep(50 + (rand() % 40));
         // Drag with human movement
-        (void)humanMouseMove(x2, y2);
+        auto move2 = humanMouseMove(x2, y2);
+        if (!move2) {
+            return move2;
+        }
         ::Sleep(20 + (rand() % 20));
     } else {
         sendMouseEvent(x1, y1, MOUSEEVENTF_MOVE);
@@ -160,21 +189,24 @@ ToolResult drag(int x1, int y1, int x2, int y2, bool humanMove) {
 }
 
 ToolResult scroll(int x, int y, int delta, bool humanMove) {
-    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
+    std::scoped_lock lock(s_inputMutex);
     if (humanMove) {
-        (void)humanMouseMove(x, y);
+        auto moveRes = humanMouseMove(x, y);
+        if (!moveRes) {
+            return moveRes;
+        }
         ::Sleep(30 + (rand() % 30));
     } else {
         sendMouseEvent(x, y, MOUSEEVENTF_MOVE);
         ::Sleep(30);
     }
     sendMouseEvent(x, y, MOUSEEVENTF_WHEEL,
-        static_cast<DWORD>(delta * WHEEL_DELTA));
+        static_cast<DWORD>(static_cast<unsigned int>(delta * WHEEL_DELTA)));
     return ok(std::format("Scrolled {} at ({}, {})", delta, x, y));
 }
 
 // ── Keyboard helpers ──────────────────────────────────────────────────────────
-static const std::unordered_map<std::string, WORD> kKeyMap = {
+static const std::unordered_map<std::string, int> kKeyMap = {
     {"enter", VK_RETURN}, {"return", VK_RETURN},
     {"tab", VK_TAB}, {"escape", VK_ESCAPE}, {"esc", VK_ESCAPE},
     {"space", VK_SPACE}, {"backspace", VK_BACK}, {"delete", VK_DELETE},
@@ -198,51 +230,69 @@ static void sendKeyEvent(WORD vk, bool down) {
 }
 
 ToolResult keyPress(std::string_view combo) {
-    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
+    std::scoped_lock lock(s_inputMutex);
     // Parse "Ctrl+Alt+Delete", "Enter", "F5", etc.
     std::string lower(combo);
     to_lower_inplace(lower);
 
-    std::vector<WORD> modifiers, keys;
+    std::vector<WORD> modifiers;
+    std::vector<WORD> keys;
     size_t start = 0;
     while (start <= lower.size()) {
         size_t plus = lower.find('+', start);
         std::string token = lower.substr(start, (plus == std::string::npos ? lower.size() : plus) - start);
         // Trim whitespace
-        while (!token.empty() && std::isspace(static_cast<unsigned char>(token.front()))) token.erase(token.begin());
-        while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back())))  token.pop_back();
+        while (!token.empty() && std::isspace(static_cast<unsigned char>(token.front())) != 0) {
+            token.erase(token.begin());
+        }
+        while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back())) != 0) {
+            token.pop_back();
+        }
 
         WORD vk = 0;
         bool isModifier = false;
         if (auto it = kKeyMap.find(token); it != kKeyMap.end()) {
-            vk = it->second;
+            vk = static_cast<WORD>(it->second);
             isModifier = (vk == VK_CONTROL || vk == VK_MENU || vk == VK_SHIFT || vk == VK_LWIN);
         } else if (token.size() == 1) {
             vk = static_cast<WORD>(::VkKeyScanA(token[0]) & 0xFF);
         }
 
         if (vk != 0) {
-            if (isModifier) modifiers.push_back(vk);
-            else            keys.push_back(vk);
+            if (isModifier) {
+                modifiers.push_back(vk);
+            } else {
+                keys.push_back(vk);
+            }
         }
-        if (plus == std::string::npos) break;
+        if (plus == std::string::npos) {
+            break;
+        }
         start = plus + 1;
     }
 
     // Press modifiers down
-    for (WORD mod : modifiers) sendKeyEvent(mod, true);
+    for (WORD mod : modifiers) {
+        sendKeyEvent(mod, true);
+    }
     ::Sleep(20);
     // Press keys
-    for (WORD k : keys) { sendKeyEvent(k, true); ::Sleep(20); sendKeyEvent(k, false); }
+    for (WORD k : keys) {
+        sendKeyEvent(k, true);
+        ::Sleep(20);
+        sendKeyEvent(k, false);
+    }
     ::Sleep(20);
     // Release modifiers
-    for (auto it = modifiers.rbegin(); it != modifiers.rend(); ++it) sendKeyEvent(*it, false);
+    for (auto it = modifiers.rbegin(); it != modifiers.rend(); ++it) {
+        sendKeyEvent(*it, false);
+    }
 
     return ok(std::format("Key pressed: {}", combo));
 }
 
 ToolResult typeText(std::string_view text) {
-    std::lock_guard<std::recursive_mutex> lock(s_inputMutex);
+    std::scoped_lock lock(s_inputMutex);
     // Type each character using KEYEVENTF_UNICODE for full Unicode support
     for (char32_t c : text) {
         INPUT inputs[2]{};
@@ -274,7 +324,8 @@ struct AutoHookUIHandleInput {
         );
         BrowserAutomation::setMouseMoveHandler(
             [](int x, int y) {
-                (void)tools::humanMouseMove(x, y);
+                auto res = tools::humanMouseMove(x, y);
+                (void)res;
             }
         );
     }

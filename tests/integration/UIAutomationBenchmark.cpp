@@ -4,8 +4,6 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
-#include <iomanip>
-#include <iostream>
 #include <numeric>
 #include <print>
 #include <string>
@@ -48,7 +46,7 @@ void printBenchmarkReport(const std::vector<BenchmarkResult> &results) {
 
 template <typename Func>
 BenchmarkResult runBenchmark(const std::string &name, int treeSize,
-                             int iterations, Func &&fn) {
+                             int iterations, const Func &fn) {
   // Warm-up iteration
   fn();
 
@@ -69,8 +67,8 @@ BenchmarkResult runBenchmark(const std::string &name, int treeSize,
 
   double sumUs = std::accumulate(runTimesUs.begin(), runTimesUs.end(), 0.0);
   double avgUs = sumUs / iterations;
-  double minUs = *std::min_element(runTimesUs.begin(), runTimesUs.end());
-  double maxUs = *std::max_element(runTimesUs.begin(), runTimesUs.end());
+  double minUs = *std::ranges::min_element(runTimesUs);
+  double maxUs = *std::ranges::max_element(runTimesUs);
   double opsPerSec = (totalMs > 0.0) ? (iterations / (totalMs / 1000.0)) : 0.0;
 
   return BenchmarkResult{.name = name,

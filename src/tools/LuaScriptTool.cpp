@@ -9,13 +9,16 @@ LuaScriptTool::LuaScriptTool(std::string name,
       m_description(std::move(description)),
       m_schema(std::move(schema)),
       m_scriptPath(std::move(scriptPath)),
-      m_runtime(runtime) {}
+      m_runtime(&runtime) {}
 
 ToolResult LuaScriptTool::execute(const json& args) {
-    return m_runtime.executeTool(m_scriptPath, m_name, args);
+    if (m_runtime == nullptr) {
+        return err("Lua runtime not initialized");
+    }
+    return m_runtime->executeTool(m_scriptPath, m_name, args);
 }
 
-ToolResult LuaScriptTool::execute(const json& args, std::stop_token stopToken) {
+ToolResult LuaScriptTool::execute(const json& args, const std::stop_token& stopToken) {
     if (stopToken.stop_requested()) {
         return err("Tool execution cancelled");
     }

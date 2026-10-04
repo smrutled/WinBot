@@ -1,7 +1,14 @@
 #ifndef WINBOT_UIAUTOMATIONSCANNER_H
 #define WINBOT_UIAUTOMATIONSCANNER_H
-#include "Common.h"
-#include <chrono>
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <expected>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 // Forward declarations
@@ -29,8 +36,8 @@ struct UIElement {
 
   // Absolute screen center of this element.
   [[nodiscard]] POINT getCenter() const noexcept {
-    return POINT{(bounds.left + bounds.right) / 2,
-                 (bounds.top + bounds.bottom) / 2};
+    return POINT{ .x = (bounds.left + bounds.right) / 2,
+                  .y = (bounds.top + bounds.bottom) / 2 };
   }
 
   // Search the tree starting from THIS element (inclusive).
@@ -73,6 +80,8 @@ public:
 
   UIAutomationScanner(const UIAutomationScanner &) = delete;
   UIAutomationScanner &operator=(const UIAutomationScanner &) = delete;
+  UIAutomationScanner(UIAutomationScanner &&) = delete;
+  UIAutomationScanner &operator=(UIAutomationScanner &&) = delete;
 
   // Scan the currently focused window and return a tree of UI elements.
   [[nodiscard]] std::expected<UIElement, std::string> scanFocusedWindow() const;

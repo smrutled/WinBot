@@ -2,10 +2,12 @@
 #define WINBOT_TOOLREGISTRY_H
 #include "Common.h"
 #include "core/ITool.h"
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <shared_mutex>
 #include <stop_token>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -32,10 +34,10 @@ public:
     void registerSelfRegisteredTools(const ToolDependencies& deps = {});
 
     // Dispatch a tool call from a parsed JSON object {"tool": "...", "args": {...}}
-    [[nodiscard]] ToolResult dispatch(const json& toolCall, std::stop_token stopToken = {}) const;
+    [[nodiscard]] ToolResult dispatch(const json& toolCall, const std::stop_token& stopToken = {}) const;
 
     // Dispatch from raw string (parse first)
-    [[nodiscard]] ToolResult dispatchRaw(std::string_view jsonStr, std::stop_token stopToken = {}) const;
+    [[nodiscard]] ToolResult dispatchRaw(std::string_view jsonStr, const std::stop_token& stopToken = {}) const;
 
     // Generate human-readable tools description
     [[nodiscard]] std::string buildToolsPrompt() const;

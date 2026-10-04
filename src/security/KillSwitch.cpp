@@ -11,19 +11,22 @@ void KillSwitch::install(std::string_view hotkey) {
   std::string upper(hotkey);
   to_upper_inplace(upper);
 
-  if (upper.contains("CTRL"))
+  if (upper.contains("CTRL")) {
     s_needCtrl = true;
-  if (upper.contains("ALT"))
+  }
+  if (upper.contains("ALT")) {
     s_needAlt = true;
-  if (upper.contains("SHIFT"))
+  }
+  if (upper.contains("SHIFT")) {
     s_needShift = true;
+  }
 
   // Extract the single key character (last token after all modifiers)
   auto pos = upper.rfind('+');
   std::string key = (pos != std::string::npos) ? upper.substr(pos + 1) : upper;
 
-  if (key.size() == 1 && std::isalpha(static_cast<unsigned char>(key[0]))) {
-    s_vkCode = static_cast<DWORD>(key[0]); // 'A'–'Z'
+  if (key.size() == 1 && std::isalpha(static_cast<unsigned char>(key.at(0))) != 0) {
+    s_vkCode = static_cast<DWORD>(static_cast<unsigned char>(key.at(0))); // 'A'–'Z'
   } else if (key == "ESCAPE" || key == "ESC") {
     s_vkCode = VK_ESCAPE;
   } else if (key == "F12") {
@@ -56,8 +59,9 @@ void KillSwitch::install(std::string_view hotkey) {
     // interrupts
     while (!s_stopThread.load(std::memory_order_relaxed)) {
       BOOL ret = ::GetMessageW(&msg, nullptr, 0, 0);
-      if (ret <= 0)
+      if (ret <= 0) {
         break; // Error or WM_QUIT
+      }
       ::TranslateMessage(&msg);
       ::DispatchMessageW(&msg);
     }
@@ -81,6 +85,7 @@ void KillSwitch::uninstall() noexcept {
 LRESULT CALLBACK KillSwitch::lowLevelKeyboardProc(int nCode, WPARAM wParam,
                                                   LPARAM lParam) noexcept {
   if (nCode == HC_ACTION && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)) {
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
     const auto *kbd = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
     bool ctrlDown = (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
     bool altDown = (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
@@ -92,8 +97,8 @@ LRESULT CALLBACK KillSwitch::lowLevelKeyboardProc(int nCode, WPARAM wParam,
 
     if (modifiersMatch && kbd->vkCode == s_vkCode) {
       s_triggered.store(true, std::memory_order_relaxed);
-      std::fputs("\n[KillSwitch] *** HALT REQUESTED — agent stopping ***\n",
-                 stderr);
+      (void)std::fputs("\n[KillSwitch] *** HALT REQUESTED — agent stopping ***\n",
+                       stderr);
     }
   }
   return ::CallNextHookEx(s_hook, nCode, wParam, lParam);

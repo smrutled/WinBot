@@ -1,5 +1,13 @@
 #include "core/ToolRegistry.h"
 #include "security/PermissionSystem.h"
+#include <cstddef>
+#include <exception>
+#include <format>
+#include <memory>
+#include <shared_mutex>
+#include <string>
+#include <string_view>
+#include <utility>
 
 void ToolRegistry::setChangeCallback(ChangeCallback cb) {
     std::unique_lock lock(m_mutex);
@@ -11,21 +19,25 @@ void ToolRegistry::registerTool(std::unique_ptr<ITool> tool) {
 }
 
 void ToolRegistry::registerOrReplaceTool(std::unique_ptr<ITool> tool) {
-    if (!tool) return;
+    if (!tool) {
+        return;
+    }
     ChangeCallback cb;
     {
         std::unique_lock lock(m_mutex);
         std::string name = tool->name();
         auto it = m_index.find(name);
         if (it != m_index.end()) {
-            m_tools[it->second] = std::move(tool);
+            m_tools.at(it->second) = std::move(tool);
         } else {
             m_index[name] = m_tools.size();
             m_tools.push_back(std::move(tool));
         }
         cb = m_changeCallback;
     }
-    if (cb) cb();
+    if (cb) {
+        cb();
+    }
 }
 
 bool ToolRegistry::unregisterTool(std::string_view name) {
@@ -33,17 +45,21 @@ bool ToolRegistry::unregisterTool(std::string_view name) {
     {
         std::unique_lock lock(m_mutex);
         auto it = m_index.find(std::string(name));
-        if (it == m_index.end()) return false;
+        if (it == m_index.end()) {
+            return false;
+        }
 
         size_t idx = it->second;
-        m_tools.erase(m_tools.begin() + idx);
+        m_tools.erase(m_tools.begin() + static_cast<std::ptrdiff_t>(idx));
         m_index.clear();
         for (size_t i = 0; i < m_tools.size(); ++i) {
-            m_index[m_tools[i]->name()] = i;
+            m_index[m_tools.at(i)->name()] = i;
         }
         cb = m_changeCallback;
     }
-    if (cb) cb();
+    if (cb) {
+        cb();
+    }
     return true;
 }
 
@@ -51,25 +67,28 @@ void ToolRegistry::registerSelfRegisteredTools(const ToolDependencies& deps) {
     for (const auto& entry : ToolRegistrar::getRegistry()) {
         auto tool = entry.factory(deps);
         if (tool) {
-            if (!deps.perms || deps.perms->isToolEnabled(tool->name())) {
+            if (deps.perms == nullptr || deps.perms->isToolEnabled(tool->name())) {
                 registerTool(std::move(tool));
             }
         }
     }
 }
 
-ToolResult ToolRegistry::dispatch(const json& toolCall, std::stop_token stopToken) const {
+ToolResult ToolRegistry::dispatch(const json& toolCall, const std::stop_token& stopToken) const {
     std::string toolName = toolCall.value("tool", "");
-    if (toolName.empty()) return err("Tool call missing 'tool' field");
+    if (toolName.empty()) {
+        return err("Tool call missing 'tool' field");
+    }
 
     std::shared_lock lock(m_mutex);
     auto it = m_index.find(toolName);
-    if (it == m_index.end())
+    if (it == m_index.end()) {
         return err(std::format("Unknown tool: '{}'", toolName));
+    }
 
-    const json& args = toolCall.contains("args") ? toolCall["args"] : json::object();
+    const json& args = toolCall.contains("args") ? toolCall.at("args") : json::object();
     try {
-        return m_tools[it->second]->execute(args, stopToken);
+        return m_tools.at(it->second)->execute(args, stopToken);
     } catch (const std::exception& e) {
         return err(std::format("Tool '{}' threw: {}", toolName, e.what()));
     } catch (...) {
@@ -77,13 +96,14 @@ ToolResult ToolRegistry::dispatch(const json& toolCall, std::stop_token stopToke
     }
 }
 
-ToolResult ToolRegistry::dispatchRaw(std::string_view jsonStr, std::stop_token stopToken) const {
+ToolResult ToolRegistry::dispatchRaw(std::string_view jsonStr, const std::stop_token& stopToken) const {
     // Strip markdown code fences if model wrapped the JSON
     std::string cleaned(jsonStr);
     auto start = cleaned.find('{');
     auto end   = cleaned.rfind('}');
-    if (start == std::string::npos || end == std::string::npos)
+    if (start == std::string::npos || end == std::string::npos) {
         return err(std::format("No JSON object found in: {}", jsonStr));
+    }
     cleaned = cleaned.substr(start, end - start + 1);
 
     try {
@@ -104,7 +124,7 @@ std::string ToolRegistry::buildToolsPrompt() const {
         prompt += std::format("**{}**: {}\n", t->name(), t->description());
         auto schema = t->parametersSchema();
         if (!schema.empty() && schema.contains("properties")) {
-            for (const auto& [param, paramSchema] : schema["properties"].items()) {
+            for (const auto& [param, paramSchema] : schema.at("properties").items()) {
                 std::string desc = paramSchema.value("description", "");
                 std::string type = paramSchema.value("type", "string");
                 prompt += std::format("  - `{}` ({}) — {}\n", param, type, desc);

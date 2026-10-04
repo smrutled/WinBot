@@ -7,7 +7,7 @@
 #include "core/ThreadPool.h"
 
 #include <atomic>
-#include <functional>
+#include <cstddef>
 #include <iosfwd>
 #include <memory>
 #include <mutex>
@@ -45,6 +45,11 @@ public:
     McpServer(Config cfg, ToolRegistry& tools);
     McpServer(Config cfg, ToolRegistry& tools, std::istream& in, std::ostream& out);
     ~McpServer();
+
+    McpServer(const McpServer&) = delete;
+    McpServer& operator=(const McpServer&) = delete;
+    McpServer(McpServer&&) = delete;
+    McpServer& operator=(McpServer&&) = delete;
 
     // Block and serve MCP requests until stdin closes or stop() is called.
     void run();

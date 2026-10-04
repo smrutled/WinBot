@@ -6,6 +6,7 @@
 #include <format>
 #include <gtest/gtest.h>
 #include <objbase.h>
+#include <print>
 #include <string>
 #include <vector>
 

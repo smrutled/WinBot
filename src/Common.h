@@ -4,19 +4,22 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <Windows.h>
+#include <Windows.h> // IWYU pragma: export
 
 #include <cstdio>
 #include <cctype>
 #include <cwctype>
 #include <algorithm>
+#include <chrono>
 #include <expected>
 #include <format>
 #include <memory>
-#include <nlohmann/json.hpp>
+#include <nlohmann/json.hpp> // IWYU pragma: export
 #include <print> // IWYU pragma: keep
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 
 using json = nlohmann::json;
 
@@ -36,8 +39,9 @@ using ToolResult = std::expected<std::string, std::string>;
 // ── RAII Windows handle wrapper ─────────────────────────────────────────────
 struct HandleDeleter {
   void operator()(HANDLE h) const noexcept {
-    if (h && h != INVALID_HANDLE_VALUE)
+    if (h != nullptr && h != INVALID_HANDLE_VALUE) {
       ::CloseHandle(h);
+    }
   }
 };
 using UniqueHandle =
@@ -48,16 +52,18 @@ inline UniqueHandle make_unique_handle(HANDLE h) { return UniqueHandle{h}; }
 // ── COM pointer helper ─────────────────────────────────────────────────────
 template <typename T> struct ComDeleter {
   void operator()(T *p) const noexcept {
-    if (p)
+    if (p != nullptr) {
       p->Release();
+    }
   }
 };
 template <typename T> using ComPtr = std::unique_ptr<T, ComDeleter<T>>;
 
 // ── String conversions ──────────────────────────────────────────────────────
 inline std::string wide_to_utf8(std::wstring_view wide) {
-  if (wide.empty())
+  if (wide.empty()) {
     return {};
+  }
   int len = ::WideCharToMultiByte(CP_UTF8, 0, wide.data(),
                                   static_cast<int>(wide.size()), nullptr, 0,
                                   nullptr, nullptr);
@@ -68,8 +74,9 @@ inline std::string wide_to_utf8(std::wstring_view wide) {
 }
 
 inline std::wstring utf8_to_wide(std::string_view utf8) {
-  if (utf8.empty())
+  if (utf8.empty()) {
     return {};
+  }
   int len = ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(),
                                   static_cast<int>(utf8.size()), nullptr, 0);
   std::wstring result(len, L'\0');
@@ -104,18 +111,20 @@ inline std::string utc_timestamp() {
 // ── MCP mode flag ───────────────────────────────────────────────────────────
 // When true, all log output is redirected to stderr so that stdout is
 // reserved exclusively for newline-delimited JSON protocol messages.
-inline bool g_mcpMode = false;
+inline bool g_mcpMode = false; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-// ── Console logging macros ──────────────────────────────────────────────────
+// ── Console logging ─────────────────────────────────────────────────────────
+inline void winbot_log_raw(std::string_view tag, std::string_view msg) {
+  auto formatted = std::format("[{}] {}\n", tag, msg);
+  if (g_mcpMode) {
+    (void)std::fwrite(formatted.data(), 1, formatted.size(), stderr);
+  } else {
+    std::print("{}", formatted);
+  }
+}
+
 #define WINBOT_LOG(tag, msg, ...)                                              \
-  do {                                                                         \
-    auto _winbot_msg_ =                                                        \
-        std::format("[{}] {}\n", tag, std::format(msg, ##__VA_ARGS__));        \
-    if (g_mcpMode)                                                             \
-      std::fwrite(_winbot_msg_.data(), 1, _winbot_msg_.size(), stderr);        \
-    else                                                                       \
-      std::print("{}", _winbot_msg_);                                          \
-  } while (0)
+  ::winbot_log_raw(tag, std::format(msg, ##__VA_ARGS__))
 
 #define WINBOT_INFO(msg, ...) WINBOT_LOG("WinBot", msg, ##__VA_ARGS__)
 #define WINBOT_WARN(msg, ...) WINBOT_LOG("WARN  ", msg, ##__VA_ARGS__)

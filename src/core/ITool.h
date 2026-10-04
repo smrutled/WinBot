@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <stop_token>
@@ -33,7 +34,12 @@ struct ToolDependencies {
 // Encapsulates tool identity, schema metadata, and argument execution logic.
 class ITool {
 public:
+    ITool() = default;
     virtual ~ITool() = default;
+    ITool(const ITool&) = default;
+    ITool& operator=(const ITool&) = default;
+    ITool(ITool&&) = default;
+    ITool& operator=(ITool&&) = default;
 
     [[nodiscard]] virtual std::string name() const = 0;
     [[nodiscard]] virtual std::string description() const = 0;
@@ -42,7 +48,7 @@ public:
     [[nodiscard]] virtual ToolResult execute(const json& args) = 0;
 
     // Optional cooperative cancellation overload (C++20/23 std::stop_token)
-    [[nodiscard]] virtual ToolResult execute(const json& args, std::stop_token /*stopToken*/) {
+    [[nodiscard]] virtual ToolResult execute(const json& args, const std::stop_token& /*stopToken*/) {
         return execute(args);
     }
 };
@@ -52,7 +58,7 @@ public:
 class LambdaTool : public ITool {
 public:
     using Handler = std::function<ToolResult(const json& args)>;
-    using CancelableHandler = std::function<ToolResult(const json& args, std::stop_token stopToken)>;
+    using CancelableHandler = std::function<ToolResult(const json& args, const std::stop_token& stopToken)>;
 
     LambdaTool(std::string name, std::string description, json schema, Handler handler)
         : m_name(std::move(name)), m_description(std::move(description)),
@@ -73,7 +79,7 @@ public:
         return m_handler ? m_handler(args) : err("No handler defined");
     }
 
-    [[nodiscard]] ToolResult execute(const json& args, std::stop_token stopToken) override {
+    [[nodiscard]] ToolResult execute(const json& args, const std::stop_token& stopToken) override {
         if (m_cancelableHandler) {
             return m_cancelableHandler(args, stopToken);
         }
@@ -99,13 +105,16 @@ public:
     };
 
     ToolRegistrar(const std::string& name, FactoryFunc factory) {
-        getRegistry().push_back(Entry{name, std::move(factory)});
+        getRegistry().push_back(Entry{
+            .name = name,
+            .factory = std::move(factory)
+        });
     }
 
     ToolRegistrar(const std::string& name, std::function<std::unique_ptr<ITool>()> factory) {
         getRegistry().push_back(Entry{
-            name,
-            [f = std::move(factory)](const ToolDependencies&) { return f(); }
+            .name = name,
+            .factory = [f = std::move(factory)](const ToolDependencies&) { return f(); }
         });
     }
 
@@ -116,11 +125,13 @@ public:
 };
 
 #define REGISTER_TOOL(ToolClass) \
+    /* NOLINTNEXTLINE(bugprone-throwing-static-initialization,cert-err58-cpp) */ \
     static ToolRegistrar s_registrar_##ToolClass( \
         #ToolClass, []() -> std::unique_ptr<ITool> { return std::make_unique<ToolClass>(); } \
     )
 
 #define REGISTER_TOOL_WITH_DEPS(ToolClass, FactoryLambda) \
+    /* NOLINTNEXTLINE(bugprone-throwing-static-initialization,cert-err58-cpp) */ \
     static ToolRegistrar s_registrar_##ToolClass( \
         #ToolClass, FactoryLambda \
     )

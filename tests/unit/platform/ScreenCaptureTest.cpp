@@ -25,25 +25,25 @@ TEST(ScreenCaptureTest, CaptureRegionRejectsZeroOrInvertedDimensions) {
     RECT zeroRegion{ 50, 50, 50, 50 };
     auto resZero = ScreenCapture::captureRegion(zeroRegion);
     EXPECT_FALSE(resZero.has_value());
-    EXPECT_TRUE(resZero.error().find("Invalid capture dimensions") != std::string::npos);
+    EXPECT_TRUE(resZero.error().contains("Invalid capture dimensions"));
 
     // Inverted dimensions
     RECT invertedRegion{ 100, 100, 50, 50 };
     auto resInverted = ScreenCapture::captureRegion(invertedRegion);
     EXPECT_FALSE(resInverted.has_value());
-    EXPECT_TRUE(resInverted.error().find("Invalid capture dimensions") != std::string::npos);
+    EXPECT_TRUE(resInverted.error().contains("Invalid capture dimensions"));
 }
 
 TEST(ScreenCaptureTest, CaptureWindowNullHwnd) {
     auto result = ScreenCapture::captureWindow(static_cast<HWND>(nullptr));
     EXPECT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().find("Invalid HWND") != std::string::npos);
+    EXPECT_TRUE(result.error().contains("Invalid HWND"));
 }
 
 TEST(ScreenCaptureTest, CaptureWindowNonExistentTitle) {
     auto result = ScreenCapture::captureWindow("GhostWindowThatDoesNotExist_12345");
     EXPECT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().find("not found") != std::string::npos);
+    EXPECT_TRUE(result.error().contains("not found"));
 }
 
 TEST(ScreenCaptureTest, ToBase64Encoding) {

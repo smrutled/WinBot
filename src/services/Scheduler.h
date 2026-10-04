@@ -1,11 +1,13 @@
 #ifndef WINBOT_SCHEDULER_H
 #define WINBOT_SCHEDULER_H
-#include "Common.h"
+#include <ctime>
 #include <functional>
 #include <mutex>
-#include <queue>
 #include <stop_token>
+#include <string>
+#include <string_view>
 #include <thread>
+#include <vector>
 
 // ── Scheduler
 // ───────────────────────────────────────────────────────────────── Parses cron
@@ -25,6 +27,11 @@ public:
   explicit Scheduler(TaskCallback callback);
   ~Scheduler();
 
+  Scheduler(const Scheduler &) = delete;
+  Scheduler &operator=(const Scheduler &) = delete;
+  Scheduler(Scheduler &&) = delete;
+  Scheduler &operator=(Scheduler &&) = delete;
+
   void addTask(TaskDef task);
   void removeTask(std::string_view name);
   [[nodiscard]] std::vector<TaskDef> listTasks() const;
@@ -35,7 +42,7 @@ private:
   TaskCallback m_callback;
   std::jthread m_thread; // C++20 — auto-joins on destruction
 
-  void workerLoop(std::stop_token stopToken);
+  void workerLoop(const std::stop_token &stopToken);
 
   // Returns true if the given time matches the cron expression
   [[nodiscard]] static bool cronMatches(const std::string &expr,

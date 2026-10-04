@@ -1,9 +1,7 @@
 #ifndef WINBOT_SERVICES_LUATOOLLOADER_H
 #define WINBOT_SERVICES_LUATOOLLOADER_H
 
-#include "Common.h"
 #include <filesystem>
-#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>

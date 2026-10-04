@@ -12,7 +12,9 @@ SiteProfileRegistry::SiteProfileRegistry(std::filesystem::path profilesDir)
 
 void SiteProfileRegistry::reload() {
     m_profiles.clear();
-    if (!std::filesystem::exists(m_profilesDir)) return;
+    if (!std::filesystem::exists(m_profilesDir)) {
+        return;
+    }
 
     for (const auto& entry : std::filesystem::directory_iterator(m_profilesDir)) {
         if (entry.path().extension() == ".json") {
@@ -32,8 +34,8 @@ void SiteProfileRegistry::reload() {
                         profile.items.push_back(item);
                     }
                 }
-                m_profiles.push_back(std::move(profile));
                 WINBOT_INFO("Loaded site profile: {} (match: {})", entry.path().filename().string(), profile.urlMatch);
+                m_profiles.push_back(std::move(profile));
             } catch (const std::exception& e) {
                 WINBOT_ERROR("Failed to load profile {}: {}", entry.path().string(), e.what());
             }
@@ -43,7 +45,7 @@ void SiteProfileRegistry::reload() {
 
 const SiteProfile* SiteProfileRegistry::match(std::string_view url) const {
     for (const auto& profile : m_profiles) {
-        if (!profile.urlMatch.empty() && url.find(profile.urlMatch) != std::string_view::npos) {
+        if (!profile.urlMatch.empty() && url.contains(profile.urlMatch)) {
             return &profile;
         }
     }
@@ -57,9 +59,13 @@ ToolResult SiteProfileRegistry::saveProfile(std::string_view name, const json& p
     
     std::string safeName(name);
     for (char& c : safeName) {
-        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') c = '_';
+        if (std::isalnum(static_cast<unsigned char>(c)) == 0 && c != '-' && c != '_') {
+            c = '_';
+        }
     }
-    if (safeName.empty()) safeName = "unnamed_profile";
+    if (safeName.empty()) {
+        safeName = "unnamed_profile";
+    }
 
     std::filesystem::path p = m_profilesDir / (safeName + ".json");
     try {

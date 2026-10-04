@@ -25,7 +25,7 @@ public:
     void reload();
 
     // Find the first profile that matches the URL (using substring match)
-    const SiteProfile* match(std::string_view url) const;
+    [[nodiscard]] const SiteProfile* match(std::string_view url) const;
 
     // Save a new profile to disk and reload
     ToolResult saveProfile(std::string_view name, const json& profileJson);

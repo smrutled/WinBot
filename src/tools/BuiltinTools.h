@@ -8,12 +8,10 @@
 // Include all modular tool endpoints
 #include "tools/BrowserTools.h"
 #include "tools/FileTools.h"
-#include "tools/InputTools.h"
 #include "tools/ScreenTools.h"
 #include "tools/ShellTools.h"
 #include "tools/WindowTools.h"
 
-#include <functional>
 #include <memory>
 #include <string>
 
@@ -54,7 +52,7 @@ public:
     [[nodiscard]] json parametersSchema() const override {
         return {{"type", "object"}, {"properties", json::object()}};
     }
-    [[nodiscard]] ToolResult execute(const json&) override { return ok("pong"); }
+    [[nodiscard]] ToolResult execute(const json& /*args*/) override { return ok("pong"); }
 };
 
 class EchoTool : public ITool {
@@ -80,7 +78,7 @@ public:
     [[nodiscard]] json parametersSchema() const override {
         return {{"type", "object"}, {"properties", json::object()}};
     }
-    [[nodiscard]] ToolResult execute(const json&) override {
+    [[nodiscard]] ToolResult execute(const json& /*args*/) override {
         return ok(json{
             {"version", "0.2.0"},
             {"build", "msvc-ninja"}
@@ -133,6 +131,10 @@ public:
     explicit DebugUiaTool(UIAutomationScanner& uia);
     explicit DebugUiaTool(UIAutomationScanner* uia = nullptr);
     ~DebugUiaTool() override;
+    DebugUiaTool(const DebugUiaTool&) = delete;
+    DebugUiaTool& operator=(const DebugUiaTool&) = delete;
+    DebugUiaTool(DebugUiaTool&&) = delete;
+    DebugUiaTool& operator=(DebugUiaTool&&) = delete;
 
     [[nodiscard]] std::string name() const override { return "debug_uia"; }
     [[nodiscard]] std::string description() const override {

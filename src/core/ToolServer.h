@@ -1,10 +1,9 @@
 #ifndef WINBOT_TOOLSERVER_H
 #define WINBOT_TOOLSERVER_H
 
-#include "Common.h"
-#include "Protocol.h"
 #include "core/ToolRegistry.h"
 #include "security/AuditLog.h"
+#include <string>
 
 // ── ToolServer ─────────────────────────────────────────────────────────────────
 // Reads newline-delimited JSON requests from stdin, dispatches them to the
@@ -27,14 +26,20 @@ public:
         ToolRegistry& tools,
         AuditLog&     audit
     );
+    ~ToolServer() = default;
+
+    ToolServer(const ToolServer&) = delete;
+    ToolServer& operator=(const ToolServer&) = delete;
+    ToolServer(ToolServer&&) = delete;
+    ToolServer& operator=(ToolServer&&) = delete;
 
     // Block and serve requests until stdin closes or kill-switch fires.
     void run();
 
 private:
     Config        m_cfg;
-    ToolRegistry& m_tools;
-    AuditLog&     m_audit;
+    ToolRegistry* m_tools{nullptr};
+    AuditLog*     m_audit{nullptr};
 
     // Write one response line to stdout, flushing immediately
     static void sendResponse(const std::string& line);

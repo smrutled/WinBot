@@ -3,6 +3,7 @@
 #include "platform/uia/UIAutomationScanner.h"
 
 // Register the COM environment once for all tests in this process
+// NOLINTNEXTLINE(cert-err58-cpp,cppcoreguidelines-avoid-non-const-global-variables)
 static ::testing::Environment* const s_comEnv = ::testing::AddGlobalTestEnvironment(new ComEnvironment());
 
 TEST(UIAutomationScannerTest, ExactNameMatch) {
@@ -79,9 +80,9 @@ TEST(UIAutomationScannerTest, WindowTypePriority) {
 TEST(UIAutomationScannerTest, InteractiveElementPriority) {
     UIElement root = createMockElement("Form", "Group");
     // Non-interactive matching element
-    UIElement label = createMockElement("Save", "Text", "lblSave", {0, 0, 50, 20}, false, false);
+    UIElement label = createMockElement("Save", "Text", "lblSave", RECT{ .left = 0, .top = 0, .right = 50, .bottom = 20 }, false, false);
     // Interactive matching element (bonus +5)
-    UIElement btn = createMockElement("Save", "Button", "btnSave", {0, 30, 50, 50}, true, true);
+    UIElement btn = createMockElement("Save", "Button", "btnSave", RECT{ .left = 0, .top = 30, .right = 50, .bottom = 50 }, true, true);
     root.children.push_back(label);
     root.children.push_back(btn);
 
@@ -95,11 +96,11 @@ TEST(UIAutomationScannerTest, SelfPidExclusion_Injected) {
     constexpr DWORD targetPid = 9999;
     constexpr DWORD otherPid  = 8888;
 
-    UIElement root = createMockElement("Desktop", "Pane", "", {0, 0, 1000, 1000}, true, false, {1}, otherPid);
+    UIElement root = createMockElement("Desktop", "Pane", "", RECT{ .left = 0, .top = 0, .right = 1000, .bottom = 1000 }, true, false, {1}, otherPid);
     // An element belonging to the excluded process ID (e.g. WinBot's own console/window)
-    root.children.push_back(createMockElement("WinBot Console", "Window", "ConsoleWin", {0, 0, 400, 300}, true, true, {1, 1}, targetPid));
+    root.children.push_back(createMockElement("WinBot Console", "Window", "ConsoleWin", RECT{ .left = 0, .top = 0, .right = 400, .bottom = 300 }, true, true, {1, 1}, targetPid));
     // An element belonging to another process
-    root.children.push_back(createMockElement("WinBot Docs", "Window", "DocsWin", {400, 0, 800, 300}, true, true, {1, 2}, otherPid));
+    root.children.push_back(createMockElement("WinBot Docs", "Window", "DocsWin", RECT{ .left = 400, .top = 0, .right = 800, .bottom = 300 }, true, true, {1, 2}, otherPid));
 
     // When excluding targetPid, search for "WinBot" must skip "WinBot Console" and return "WinBot Docs"
     const UIElement* best = root.findBestMatch("WinBot", "", targetPid);
@@ -186,8 +187,10 @@ TEST(UIAutomationScannerTest, FindElementCenter) {
     auto pt = UIAutomationScanner::findElementCenter(calc, "One");
     ASSERT_TRUE(pt.has_value());
     // "One" bounds: {120, 220, 200, 280} -> center x = 160, y = 250
-    EXPECT_EQ(pt->x, 160);
-    EXPECT_EQ(pt->y, 250);
+    if (pt) {
+        EXPECT_EQ(pt->x, 160);
+        EXPECT_EQ(pt->y, 250);
+    }
 
     auto notFound = UIAutomationScanner::findElementCenter(calc, "NonExistentButton");
     EXPECT_FALSE(notFound.has_value());
@@ -209,6 +212,6 @@ TEST(UIAutomationScannerTest, InvokeElementRejectsEmptyRuntimeId) {
     UIAutomationScanner scanner;
     auto res = scanner.invokeElement({});
     EXPECT_FALSE(res.has_value());
-    EXPECT_TRUE(res.error().find("RuntimeId is empty") != std::string::npos);
+    EXPECT_TRUE(res.error().contains("RuntimeId is empty"));
 }
 

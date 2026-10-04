@@ -18,7 +18,9 @@ AuditLog::AuditLog(std::filesystem::path logPath)
 }
 
 void AuditLog::record(const AuditEntry& entry) {
-    if (!m_enabled) return;
+    if (!m_enabled) {
+        return;
+    }
     json record = {
         { "ts",     entry.timestamp },
         { "task",   entry.task      },
@@ -28,18 +30,20 @@ void AuditLog::record(const AuditEntry& entry) {
         { "detail", entry.detail    }
     };
 
-    std::lock_guard lock{ m_mutex };
+    std::scoped_lock lock{ m_mutex };
     std::ofstream file{ m_path, std::ios::app };
     file << record.dump() << '\n';
 }
 
 void AuditLog::note(std::string_view message) {
-    if (!m_enabled) return;
+    if (!m_enabled) {
+        return;
+    }
     json record = {
         { "ts",   utc_timestamp()     },
         { "note", std::string(message) }
     };
-    std::lock_guard lock{ m_mutex };
+    std::scoped_lock lock{ m_mutex };
     std::ofstream file{ m_path, std::ios::app };
     file << record.dump() << '\n';
 }

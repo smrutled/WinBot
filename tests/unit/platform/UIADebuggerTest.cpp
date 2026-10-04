@@ -83,7 +83,9 @@ TEST(UIADebuggerTest, DotChain_StringWithDots) {
 
     const auto& last = debugger.getLastResult();
     ASSERT_TRUE(last.has_value());
-    EXPECT_EQ(last->element().name, "Plus");
+    if (last) {
+        EXPECT_EQ(last->element().name, "Plus");
+    }
 }
 
 TEST(UIADebuggerTest, VariableAssignmentAndRetrieval) {

@@ -39,11 +39,11 @@ protected:
                 return ok("mock click");
             },
             [this](std::string_view text) -> ToolResult {
-                m_recordedTypes.push_back(std::string(text));
+                m_recordedTypes.emplace_back(text);
                 return ok("mock type");
             },
             [this](std::string_view combo) -> ToolResult {
-                m_recordedKeys.push_back(std::string(combo));
+                m_recordedKeys.emplace_back(combo);
                 return ok("mock key");
             }
         );
@@ -53,7 +53,9 @@ protected:
     }
 
     void TearDown() override {
-        if (m_oldCin) std::cin.rdbuf(m_oldCin);
+        if (m_oldCin != nullptr) {
+            std::cin.rdbuf(m_oldCin);
+        }
         UIHandle::setInputHandlers(nullptr, nullptr, nullptr);
         m_lua.reset();
         m_uia.reset();
@@ -63,18 +65,18 @@ protected:
         std::filesystem::remove_all(m_tempDir, ec);
     }
 
-    std::filesystem::path m_tempDir;
-    std::unique_ptr<SiteProfileRegistry> m_profiles;
-    std::unique_ptr<UIAutomationScanner> m_uia;
-    std::unique_ptr<PermissionSystem> m_perms;
-    std::unique_ptr<LuaRuntime> m_lua;
+    std::filesystem::path m_tempDir; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+    std::unique_ptr<SiteProfileRegistry> m_profiles; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+    std::unique_ptr<UIAutomationScanner> m_uia; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+    std::unique_ptr<PermissionSystem> m_perms; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+    std::unique_ptr<LuaRuntime> m_lua; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
 
-    std::istringstream m_cinStream;
-    std::streambuf* m_oldCin{nullptr};
+    std::istringstream m_cinStream; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+    std::streambuf* m_oldCin{nullptr}; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
 
-    std::vector<std::string> m_recordedClicks;
-    std::vector<std::string> m_recordedTypes;
-    std::vector<std::string> m_recordedKeys;
+    std::vector<std::string> m_recordedClicks; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+    std::vector<std::string> m_recordedTypes; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+    std::vector<std::string> m_recordedKeys; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
 };
 
 // ── Basic Script Execution & Return Value Formats ────────────────────────────
@@ -124,7 +126,7 @@ TEST_F(LuaRuntimeTest, ExecStringHandlesSyntaxErrorGracefully) {
 TEST_F(LuaRuntimeTest, ExecStringHandlesRuntimeErrorGracefully) {
     auto result = m_lua->execString("error('Deliberate Lua runtime error')");
     EXPECT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().find("Deliberate Lua runtime error") != std::string::npos);
+    EXPECT_TRUE(result.error().contains("Deliberate Lua runtime error"));
 }
 
 // ── Sandboxing & Security ───────────────────────────────────────────────────
@@ -161,7 +163,7 @@ TEST_F(LuaRuntimeTest, InfiniteLoopTerminatesViaTimeout) {
 
     auto result = m_lua->execString("while true do end");
     EXPECT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().find("Script execution aborted") != std::string::npos);
+    EXPECT_TRUE(result.error().contains("Script execution aborted"));
 
     // Reset limits and verify runtime still functions normally
     m_lua->setTimeout(std::chrono::milliseconds(10000));
@@ -175,20 +177,23 @@ TEST_F(LuaRuntimeTest, PermissionSystemEnforcedOnShell) {
     // 1. Safe command within permissions
     auto safeRes = m_lua->execString("return winbot.shell('echo safe_shell_output')");
     ASSERT_TRUE(safeRes.has_value()) << safeRes.error();
-    EXPECT_TRUE(safeRes->find("safe_shell_output") != std::string::npos);
+    EXPECT_TRUE(safeRes->contains("safe_shell_output"));
 
     // 2. Dangerous command blocked by PermissionSystem
     auto blockedRes = m_lua->execString("return winbot.shell('format D: /q')");
     EXPECT_FALSE(blockedRes.has_value());
-    EXPECT_TRUE(blockedRes.error().find("Permission denied") != std::string::npos);
+    EXPECT_TRUE(blockedRes.error().contains("Permission denied"));
 }
 
 TEST_F(LuaRuntimeTest, FileReadWriteWithPermissions) {
     auto testFilePath = (m_tempDir / "script_test.txt").string();
     std::string escapedPath;
     for (char c : testFilePath) {
-        if (c == '\\') escapedPath += "/";
-        else escapedPath += c;
+        if (c == '\\') {
+            escapedPath += "/";
+        } else {
+            escapedPath += c;
+        }
     }
 
     std::string script = std::format(
@@ -204,7 +209,7 @@ TEST_F(LuaRuntimeTest, FileReadWriteWithPermissions) {
     // Reading outside allowed path must fail
     auto blockedRes = m_lua->execString("return winbot.readFile('C:/Windows/System32/drivers/etc/hosts')");
     EXPECT_FALSE(blockedRes.has_value());
-    EXPECT_TRUE(blockedRes.error().find("Permission denied") != std::string::npos);
+    EXPECT_TRUE(blockedRes.error().contains("Permission denied"));
 }
 
 // ── File Execution ──────────────────────────────────────────────────────────
@@ -225,18 +230,18 @@ TEST_F(LuaRuntimeTest, ExecFileValidAndBlocked) {
     auto nonExistent = m_tempDir / "does_not_exist.lua";
     auto nonExistentRes = m_lua->execFile(nonExistent);
     EXPECT_FALSE(nonExistentRes.has_value());
-    EXPECT_TRUE(nonExistentRes.error().find("Script file not found") != std::string::npos);
+    EXPECT_TRUE(nonExistentRes.error().contains("Script file not found"));
 
     // 3. Blocked path outside allowed directories
     auto blockedRes = m_lua->execFile("C:/Windows/System32/some_script.lua");
     EXPECT_FALSE(blockedRes.has_value());
-    EXPECT_TRUE(blockedRes.error().find("Permission denied") != std::string::npos);
+    EXPECT_TRUE(blockedRes.error().contains("Permission denied"));
 }
 
 // ── UI Automation & Method Chaining ─────────────────────────────────────────
 
 TEST_F(LuaRuntimeTest, UIHandleMethodChaining) {
-    UIElement btn = createMockElement("SubmitBtn", "Button", "btnSubmit", {10, 10, 50, 30});
+    UIElement btn = createMockElement("SubmitBtn", "Button", "btnSubmit", RECT{ .left = 10, .top = 10, .right = 50, .bottom = 30 });
     UIHandle handle(btn, m_uia.get());
     m_lua->setGlobalHandle("btn", handle);
 
@@ -251,9 +256,9 @@ TEST_F(LuaRuntimeTest, UIHandleMethodChaining) {
 
     EXPECT_FALSE(m_recordedClicks.empty());
     EXPECT_EQ(m_recordedTypes.size(), 1);
-    EXPECT_EQ(m_recordedTypes[0], "sample text");
+    EXPECT_EQ(m_recordedTypes.at(0), "sample text");
     EXPECT_EQ(m_recordedKeys.size(), 1);
-    EXPECT_EQ(m_recordedKeys[0], "Enter");
+    EXPECT_EQ(m_recordedKeys.at(0), "Enter");
 }
 
 // ── The Calculator Test ─────────────────────────────────────────────────────

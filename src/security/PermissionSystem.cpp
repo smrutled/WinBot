@@ -7,31 +7,51 @@
 #include <tlhelp32.h>
 
 static bool isSubpathOrEqual(const std::filesystem::path& base, const std::filesystem::path& target) {
-    if (base.empty() || target.empty()) return false;
+    if (base.empty() || target.empty()) {
+        return false;
+    }
 
     std::wstring bStr = base.lexically_normal().wstring();
     std::wstring tStr = target.lexically_normal().wstring();
 
-    std::replace(bStr.begin(), bStr.end(), L'/', L'\\');
-    std::replace(tStr.begin(), tStr.end(), L'/', L'\\');
+    std::ranges::replace(bStr, L'/', L'\\');
+    std::ranges::replace(tStr, L'/', L'\\');
 
     // Case-insensitive normalization
-    for (auto& c : bStr) c = std::towlower(c);
-    for (auto& c : tStr) c = std::towlower(c);
+    for (auto& c : bStr) {
+        c = std::towlower(c);
+    }
+    for (auto& c : tStr) {
+        c = std::towlower(c);
+    }
 
     // If drive root like "c:" make sure it has trailing slash "c:\"
-    if (bStr.size() == 2 && bStr[1] == L':') bStr += L'\\';
-    if (tStr.size() == 2 && tStr[1] == L':') tStr += L'\\';
+    if (bStr.size() == 2 && bStr[1] == L':') {
+        bStr += L'\\';
+    }
+    if (tStr.size() == 2 && tStr[1] == L':') {
+        tStr += L'\\';
+    }
 
     // Trim trailing backslashes unless root like "c:\"
-    while (bStr.size() > 3 && bStr.back() == L'\\') bStr.pop_back();
-    while (tStr.size() > 3 && tStr.back() == L'\\') tStr.pop_back();
+    while (bStr.size() > 3 && bStr.back() == L'\\') {
+        bStr.pop_back();
+    }
+    while (tStr.size() > 3 && tStr.back() == L'\\') {
+        tStr.pop_back();
+    }
 
-    if (tStr == bStr) return true;
+    if (tStr == bStr) {
+        return true;
+    }
 
     if (tStr.starts_with(bStr)) {
-        if (bStr.ends_with(L'\\')) return true;
-        if (tStr.size() > bStr.size() && tStr[bStr.size()] == L'\\') return true;
+        if (bStr.ends_with(L'\\')) {
+            return true;
+        }
+        if (tStr.size() > bStr.size() && tStr[bStr.size()] == L'\\') {
+            return true;
+        }
     }
     return false;
 }
@@ -147,7 +167,9 @@ ToolResult PermissionSystem::checkPath(std::string_view rawPath) const {
 
 ToolResult PermissionSystem::checkFileDelete(std::string_view path) const {
     auto pathCheck = checkPath(path);
-    if (!pathCheck) return pathCheck;
+    if (!pathCheck) {
+        return pathCheck;
+    }
 
     if (m_cfg.confirmFileDelete) {
         if (g_mcpMode) {
@@ -191,24 +213,32 @@ ToolResult PermissionSystem::checkProcess(std::string_view name) const {
         if (snap != INVALID_HANDLE_VALUE) {
             PROCESSENTRY32W entry{};
             entry.dwSize = sizeof(entry);
-            if (::Process32FirstW(snap, &entry)) {
+            if (::Process32FirstW(snap, &entry) != 0) {
                 do {
                     if (entry.th32ProcessID == pid) {
                         procExeName = wide_to_utf8(entry.szExeFile);
                         to_lower_inplace(procExeName);
                         break;
                     }
-                } while (::Process32NextW(snap, &entry));
+                } while (::Process32NextW(snap, &entry) != 0);
             }
             ::CloseHandle(snap);
         }
     }
 
     auto matchesProcess = [](std::string_view target, std::string_view blocked) {
-        if (target.empty() || blocked.empty()) return false;
-        if (target == blocked) return true;
-        if (!target.ends_with(".exe") && (std::string(target) + ".exe") == blocked) return true;
-        if (target.ends_with(".exe") && target.substr(0, target.size() - 4) == blocked) return true;
+        if (target.empty() || blocked.empty()) {
+            return false;
+        }
+        if (target == blocked) {
+            return true;
+        }
+        if (!target.ends_with(".exe") && (std::string(target) + ".exe") == blocked) {
+            return true;
+        }
+        if (target.ends_with(".exe") && target.substr(0, target.size() - 4) == blocked) {
+            return true;
+        }
         return false;
     };
 

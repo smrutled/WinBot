@@ -1,5 +1,6 @@
 #ifndef WINBOT_UIADEBUGGER_H
 #define WINBOT_UIADEBUGGER_H
+#include "Common.h"
 #include "platform/uia/UIAutomationScanner.h"
 #include "platform/uia/UIHandle.h"
 #include <string>
@@ -52,20 +53,20 @@ public:
     template <typename... Args>
     void emit(std::format_string<Args...> fmt, Args&&... args) {
         auto s = std::format(fmt, std::forward<Args>(args)...);
-        if (m_outputCapture) {
+        if (m_outputCapture != nullptr) {
             *m_outputCapture += s;
         }
         if (!g_mcpMode) {
             std::print("{}", s);
-        } else if (!m_outputCapture) {
-            std::fwrite(s.data(), 1, s.size(), stderr);
+        } else if (m_outputCapture == nullptr) {
+            (void)std::fwrite(s.data(), 1, s.size(), stderr);
         }
     }
 
     template <typename... Args>
     void emitError(std::format_string<Args...> fmt, Args&&... args) {
         auto s = std::format(fmt, std::forward<Args>(args)...);
-        if (m_outputCapture) {
+        if (m_outputCapture != nullptr) {
             *m_outputCapture += "[ERROR] " + s + "\n";
         }
         WINBOT_ERROR("{}", s);

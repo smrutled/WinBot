@@ -1,13 +1,15 @@
 #ifndef WINBOT_CORE_THREADPOOL_H
 #define WINBOT_CORE_THREADPOOL_H
-
-#include <atomic>
+#include <algorithm>
 #include <condition_variable>
+#include <cstddef>
+#include <exception>
 #include <functional>
 #include <mutex>
 #include <queue>
 #include <stop_token>
 #include <thread>
+#include <utility>
 #include <vector>
 
 // ── ThreadPool ────────────────────────────────────────────────────────────────
@@ -18,11 +20,11 @@ class ThreadPool {
 public:
     explicit ThreadPool(size_t numThreads = 0) {
         if (numThreads == 0) {
-            numThreads = (std::max)(1u, std::thread::hardware_concurrency());
+            numThreads = (std::max<size_t>)(1U, std::thread::hardware_concurrency());
         }
         m_workers.reserve(numThreads);
         for (size_t i = 0; i < numThreads; ++i) {
-            m_workers.emplace_back([this](std::stop_token st) {
+            m_workers.emplace_back([this](const std::stop_token& st) {
                 workerLoop(st);
             });
         }
@@ -41,7 +43,7 @@ public:
     // Returns true if successfully enqueued, false if the pool is stopping.
     bool enqueue(std::move_only_function<void()> task) {
         {
-            std::lock_guard<std::mutex> lock(m_mutex);
+            std::scoped_lock lock(m_mutex);
             if (m_stopping) {
                 return false;
             }
@@ -63,8 +65,10 @@ public:
     // Stop accepting new tasks, signal workers, and join all threads.
     void stop() {
         {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            if (m_stopping) return;
+            std::scoped_lock lock(m_mutex);
+            if (m_stopping) {
+                return;
+            }
             m_stopping = true;
         }
         m_cv.notify_all();
@@ -84,7 +88,7 @@ public:
     }
 
 private:
-    void workerLoop(std::stop_token st) {
+    void workerLoop(const std::stop_token& st) {
         while (!st.stop_requested()) {
             std::move_only_function<void()> task;
             {
@@ -103,11 +107,13 @@ private:
             if (task) {
                 try {
                     task();
-                } catch (...) {
-                    // Suppress unhandled exceptions escaping the worker thread
+                } catch (const std::exception& e) {
+                    (void)e; // Suppress unhandled exceptions escaping the worker thread
+                } catch (...) { // NOLINT(bugprone-empty-catch)
+                    // Suppress unhandled non-std exceptions escaping the worker thread
                 }
                 {
-                    std::lock_guard<std::mutex> lock(m_mutex);
+                    std::scoped_lock lock(m_mutex);
                     --m_activeTasks;
                 }
                 m_idleCv.notify_all();

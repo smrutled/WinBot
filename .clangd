@@ -1,12 +1,21 @@
 CompileFlags:
   CompilationDatabase: build
+
+  Remove:
+    - /analyze*
+    - /external:*
+    - /MP
+    - /utf-8
+
   Add:
     - -std=c++23
-    - -D_HAS_CXX17=1
-    - -D_HAS_CXX20=1
-    - -D_HAS_CXX23=1
-    - /std:c++latest
-    - /Zc:__cplusplus
-    - /EHsc
     - -fms-compatibility
     - -fms-extensions
+    - -Wno-unknown-warning-option
+    - -Wno-microsoft-include
+
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: None
+  ClangTidy:
+    FastCheckFilter: None

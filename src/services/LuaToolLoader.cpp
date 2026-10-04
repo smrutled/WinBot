@@ -21,7 +21,7 @@ size_t LuaToolLoader::loadAll() {
 }
 
 size_t LuaToolLoader::reload() {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::scoped_lock lock(m_mutex);
 
     std::error_code ec;
     if (!std::filesystem::exists(m_toolsDir, ec)) {
@@ -32,11 +32,17 @@ size_t LuaToolLoader::reload() {
     std::unordered_map<std::string, std::filesystem::file_time_type> currentFiles;
 
     for (const auto& entry : std::filesystem::directory_iterator(m_toolsDir, ec)) {
-        if (!entry.is_regular_file()) continue;
-        if (entry.path().extension() != ".lua") continue;
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        if (entry.path().extension() != ".lua") {
+            continue;
+        }
 
         auto writeTime = entry.last_write_time(ec);
-        if (ec) continue;
+        if (ec) {
+            continue;
+        }
 
         currentFiles[entry.path().string()] = writeTime;
     }
@@ -110,19 +116,27 @@ size_t LuaToolLoader::reload() {
 }
 
 bool LuaToolLoader::hasChanges() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::scoped_lock lock(m_mutex);
 
     std::error_code ec;
-    if (!std::filesystem::exists(m_toolsDir, ec)) return false;
+    if (!std::filesystem::exists(m_toolsDir, ec)) {
+        return false;
+    }
 
     size_t count = 0;
     for (const auto& entry : std::filesystem::directory_iterator(m_toolsDir, ec)) {
-        if (!entry.is_regular_file()) continue;
-        if (entry.path().extension() != ".lua") continue;
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        if (entry.path().extension() != ".lua") {
+            continue;
+        }
 
         ++count;
         auto writeTime = entry.last_write_time(ec);
-        if (ec) continue;
+        if (ec) {
+            continue;
+        }
 
         std::string pathStr = entry.path().string();
         auto it = m_fileTimes.find(pathStr);
@@ -135,13 +149,13 @@ bool LuaToolLoader::hasChanges() const {
 }
 
 std::vector<std::string> LuaToolLoader::loadedToolNames() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::scoped_lock lock(m_mutex);
     std::vector<std::string> names;
     for (const auto& [_, toolNames] : m_pathToToolNames) {
         for (const auto& name : toolNames) {
             names.push_back(name);
         }
     }
-    std::sort(names.begin(), names.end());
+    std::ranges::sort(names);
     return names;
 }

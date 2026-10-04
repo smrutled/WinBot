@@ -3,25 +3,25 @@
 #include "platform/uia/UIAutomationScanner.h"
 #include "platform/uia/UIADebugger.h"
 #include "platform/screen/ScreenCapture.h"
-#include "platform/browser/BrowserAutomation.h"
-#include "security/PermissionSystem.h"
-#include "services/SiteProfileRegistry.h"
 #include "services/LuaRuntime.h"
 #include "services/LuaToolLoader.h"
+#include "tools/InputTools.h"
 
 #include <format>
 #include <sstream>
 #include <string>
 
 // ── ListToolsTool ────────────────────────────────────────────────────────────
-ToolResult ListToolsTool::execute(const json&) {
-    if (!m_registry) return ok("[]");
+ToolResult ListToolsTool::execute(const json& /*args*/) {
+    if (m_registry == nullptr) {
+        return ok("[]");
+    }
     return ok(m_registry->buildToolsSchema().dump());
 }
 
 // ── UiScanTool ───────────────────────────────────────────────────────────────
-ToolResult UiScanTool::execute(const json&) {
-    if (m_uia) {
+ToolResult UiScanTool::execute(const json& /*args*/) {
+    if (m_uia != nullptr) {
         auto treeResult = m_uia->scanFocusedWindow();
         if (treeResult) {
             int n = UIAutomationScanner::countInteractive(*treeResult);
@@ -53,10 +53,14 @@ json UiScanWindowTool::parametersSchema() const {
 }
 
 ToolResult UiScanWindowTool::execute(const json& args) {
-    if (!m_uia) return err("UIAutomationScanner not available");
+    if (m_uia == nullptr) {
+        return err("UIAutomationScanner not available");
+    }
     std::string title = args.value("title", "");
     auto tree = m_uia->scanWindow(title);
-    if (!tree) return err(tree.error());
+    if (!tree) {
+        return err(tree.error());
+    }
     return ok(UIAutomationScanner::serialize(*tree));
 }
 
@@ -65,7 +69,7 @@ DebugUiaTool::DebugUiaTool(UIAutomationScanner& uia)
     : m_uia(&uia), m_debugger(std::make_unique<UIADebugger>(uia)) {}
 
 DebugUiaTool::DebugUiaTool(UIAutomationScanner* uia)
-    : m_uia(uia), m_debugger(uia ? std::make_unique<UIADebugger>(*uia) : nullptr) {}
+    : m_uia(uia), m_debugger((uia != nullptr) ? std::make_unique<UIADebugger>(*uia) : nullptr) {}
 
 DebugUiaTool::~DebugUiaTool() = default;
 
@@ -84,7 +88,7 @@ json DebugUiaTool::parametersSchema() const {
 
 ToolResult DebugUiaTool::execute(const json& args) {
     if (!m_debugger) {
-        if (m_uia) {
+        if (m_uia != nullptr) {
             m_debugger = std::make_unique<UIADebugger>(*m_uia);
         } else {
             return err("UIAutomationScanner not available");
@@ -92,14 +96,14 @@ ToolResult DebugUiaTool::execute(const json& args) {
     }
 
     std::string script;
-    if (args.contains("cmd") && args["cmd"].is_string()) {
-        script = args["cmd"].get<std::string>();
-    } else if (args.contains("script") && args["script"].is_string()) {
-        script = args["script"].get<std::string>();
-    } else if (args.contains("command") && args["command"].is_string()) {
-        script = args["command"].get<std::string>();
-    } else if (args.contains("code") && args["code"].is_string()) {
-        script = args["code"].get<std::string>();
+    if (args.contains("cmd") && args.at("cmd").is_string()) {
+        script = args.at("cmd").get<std::string>();
+    } else if (args.contains("script") && args.at("script").is_string()) {
+        script = args.at("script").get<std::string>();
+    } else if (args.contains("command") && args.at("command").is_string()) {
+        script = args.at("command").get<std::string>();
+    } else if (args.contains("code") && args.at("code").is_string()) {
+        script = args.at("code").get<std::string>();
     } else {
         return err("Missing 'cmd' parameter");
     }
@@ -108,17 +112,30 @@ ToolResult DebugUiaTool::execute(const json& args) {
     m_debugger->setOutputCapture(&outputCapture);
     struct CaptureGuard {
         UIADebugger* dbg;
-        ~CaptureGuard() { if (dbg) dbg->setOutputCapture(nullptr); }
-    } guard{ m_debugger.get() };
+        explicit CaptureGuard(UIADebugger* d) : dbg(d) {}
+        ~CaptureGuard() {
+            if (dbg != nullptr) {
+                dbg->setOutputCapture(nullptr);
+            }
+        }
+        CaptureGuard(const CaptureGuard&) = delete;
+        CaptureGuard& operator=(const CaptureGuard&) = delete;
+        CaptureGuard(CaptureGuard&&) = delete;
+        CaptureGuard& operator=(CaptureGuard&&) = delete;
+    } guard(m_debugger.get());
 
     std::istringstream stream(script);
     std::string line;
     while (std::getline(stream, line)) {
         auto s = line.find_first_not_of(" \t\r\n");
-        if (s == std::string::npos) continue;
+        if (s == std::string::npos) {
+            continue;
+        }
         auto e = line.find_last_not_of(" \t\r\n");
         std::string trimmed = line.substr(s, e - s + 1);
-        if (trimmed.empty() || trimmed.starts_with("#") || trimmed.starts_with("//")) continue;
+        if (trimmed.empty() || trimmed.starts_with("#") || trimmed.starts_with("//")) {
+            continue;
+        }
 
         if (!m_debugger->execute(trimmed)) {
             break;
@@ -148,7 +165,9 @@ json LuaExecTool::parametersSchema() const {
 }
 
 ToolResult LuaExecTool::execute(const json& args) {
-    if (!m_luaRuntime) return err("LuaRuntime not available");
+    if (m_luaRuntime == nullptr) {
+        return err("LuaRuntime not available");
+    }
     return m_luaRuntime->execString(args.value("code", ""));
 }
 
@@ -164,18 +183,24 @@ json LuaRunTool::parametersSchema() const {
 }
 
 ToolResult LuaRunTool::execute(const json& args) {
-    if (!m_luaRuntime) return err("LuaRuntime not available");
+    if (m_luaRuntime == nullptr) {
+        return err("LuaRuntime not available");
+    }
     return m_luaRuntime->execFile(args.value("path", ""));
 }
 
-ToolResult ReloadLuaToolsTool::execute(const json&) {
-    if (!m_loader) return err("LuaToolLoader is not configured");
+ToolResult ReloadLuaToolsTool::execute(const json& /*args*/) {
+    if (m_loader == nullptr) {
+        return err("LuaToolLoader is not configured");
+    }
     size_t count = m_loader->reload();
     auto tools = m_loader->loadedToolNames();
     std::string list;
     for (size_t i = 0; i < tools.size(); ++i) {
-        if (i > 0) list += ", ";
-        list += tools[i];
+        if (i > 0) {
+            list += ", ";
+        }
+        list += tools.at(i);
     }
     return ok(std::format("Reloaded {} Lua tool(s): [{}]", count, list));
 }

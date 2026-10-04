@@ -8,17 +8,88 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# ── Global MSVC Configuration ────────────────────────────────────────────────
+# ── Global Compiler & Static Analysis Configuration ──────────────────────────
+option(WINBOT_ENABLE_WERROR "Treat warnings as errors" ON)
+option(WINBOT_ENABLE_STATIC_ANALYSIS "Enable compiler static code analysis" ON)
+option(WINBOT_ENABLE_CLANG_TIDY "Run clang-tidy during compilation and treat warnings as errors" ON)
+
+if(WINBOT_ENABLE_CLANG_TIDY)
+    find_program(CLANG_TIDY_EXE NAMES clang-tidy)
+    if(CLANG_TIDY_EXE)
+        set(WINBOT_CLANG_TIDY_COMMAND "${CLANG_TIDY_EXE};--warnings-as-errors=*;--extra-arg=/EHsc")
+        message(STATUS "clang-tidy enabled with warnings-as-errors: ${CLANG_TIDY_EXE}")
+    else()
+        message(WARNING "WINBOT_ENABLE_CLANG_TIDY is ON, but clang-tidy executable was not found")
+    endif()
+endif()
+
+add_library(winbot_strict_warnings INTERFACE)
+
 if(MSVC)
-    add_compile_definitions(
+    target_compile_definitions(winbot_strict_warnings INTERFACE
         UNICODE
         _UNICODE
         NOMINMAX
         _WIN32_WINNT=0x0A00 # Target Windows 10/11 APIs
     )
     
-    # Enable multi-processor compilation globally for all sub-targets
-    add_compile_options(/MP /utf-8 /permissive- /Zc:__cplusplus /EHsc)
+    # Global MSVC strict flags and standard conformance
+    target_compile_options(winbot_strict_warnings INTERFACE
+        /MP
+        /utf-8
+        /permissive-
+        /Zc:__cplusplus
+        /Zc:strictStrings
+        /Zc:throwingNew
+        /Zc:inline
+        /Zc:enumTypes
+        /Zc:templateScope
+        /EHsc
+        /W4
+        # Suppress warnings originating from external/Windows SDK headers
+        /external:anglebrackets
+        /external:W0
+        # Elevated strict warnings
+        /w14242 # conversion from 'type1' to 'type2', possible loss of data
+        /w14254 # conversion from 'type1' to 'type2', possible loss of data
+        /w14263 # member function does not override any base class virtual member function
+        /w14265 # class has virtual functions, but destructor is not virtual
+        /w14287 # unsigned/negative constant mismatch
+        /w14296 # expression is always true/false
+        /w14311 # pointer truncation from 'type1' to 'type2'
+        /w14545 # expression before comma evaluates to a function which is missing an argument list
+        /w14546 # function call before comma missing argument list
+        /w14547 # operator before comma has no effect
+        /w14549 # operator before comma has no effect
+        /w14555 # expression has no effect
+        /w14619 # pragma warning: there is no warning number
+        /w14640 # thread-unsafe static member initialization
+        /w14826 # conversion from 'type1' to 'type2' is sign-extended
+        /w14905 # wide string literal cast to LPSTR
+        /w14906 # string literal cast to LPWSTR
+        /w14928 # illegal copy-initialization
+        $<$<BOOL:${WINBOT_ENABLE_WERROR}>:/WX>
+        $<$<BOOL:${WINBOT_ENABLE_STATIC_ANALYSIS}>:/analyze:quiet>
+        $<$<BOOL:${WINBOT_ENABLE_STATIC_ANALYSIS}>:/analyze:external->
+    )
+
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(winbot_strict_warnings INTERFACE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wshadow
+        -Wnon-virtual-dtor
+        -Wcast-align
+        -Wunused
+        -Woverloaded-virtual
+        -Wconversion
+        -Wsign-conversion
+        -Wnull-dereference
+        -Wdouble-promotion
+        -Wformat=2
+        $<$<BOOL:${WINBOT_ENABLE_WERROR}>:-Werror>
+    )
 endif()
 
 # ── FetchContent ──────────────────────────────────────────────────────────────
@@ -116,12 +187,15 @@ add_library(WinBot_Core STATIC
 
 target_include_directories(WinBot_Core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_include_directories(WinBot_Core SYSTEM PUBLIC
     third_party
     ${stb_SOURCE_DIR}
     ${luabridge_SOURCE_DIR}/Source
 )
 
 target_link_libraries(WinBot_Core PUBLIC
+    winbot_strict_warnings
     nlohmann_json::nlohmann_json
     lua
 # Windows SDK
@@ -143,6 +217,10 @@ if(MSVC)
     )
 endif()
 
+if(WINBOT_CLANG_TIDY_COMMAND)
+    set_target_properties(WinBot_Core PROPERTIES CXX_CLANG_TIDY "${WINBOT_CLANG_TIDY_COMMAND}")
+endif()
+
 # ── WinBot Executable ─────────────────────────────────────────────────────────
 add_executable(WinBot src/main.cpp)
 target_link_libraries(WinBot PRIVATE WinBot_Core)
@@ -162,6 +240,10 @@ set_target_properties(WinBot PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
 )
+
+if(WINBOT_CLANG_TIDY_COMMAND)
+    set_target_properties(WinBot PROPERTIES CXX_CLANG_TIDY "${WINBOT_CLANG_TIDY_COMMAND}")
+endif()
 
 # Deploy data directory (tools, site profiles) alongside the binary
 add_custom_command(TARGET WinBot POST_BUILD
@@ -219,6 +301,10 @@ if(BUILD_TESTING)
         RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
     )
+
+    if(WINBOT_CLANG_TIDY_COMMAND)
+        set_target_properties(WinBot_Tests PROPERTIES CXX_CLANG_TIDY "${WINBOT_CLANG_TIDY_COMMAND}")
+    endif()
 
     add_custom_command(TARGET WinBot_Tests POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory

@@ -1,6 +1,5 @@
 #include "platform/uia/UIHandle.h"
 #include <stdexcept>
-#include <print>
 #include <thread>
 #include <chrono>
 
@@ -17,10 +16,18 @@ void UIHandle::setInputHandlers(ClickHandler clickFn, TypeHandler typeFn, KeyHan
 static void defaultSendMouseClick(int x, int y, std::string_view button) {
     int screenW = ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int screenH = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    if (screenW <= 0) screenW = ::GetSystemMetrics(SM_CXSCREEN);
-    if (screenH <= 0) screenH = ::GetSystemMetrics(SM_CYSCREEN);
-    if (screenW <= 0) screenW = 1920;
-    if (screenH <= 0) screenH = 1080;
+    if (screenW <= 0) {
+        screenW = ::GetSystemMetrics(SM_CXSCREEN);
+    }
+    if (screenH <= 0) {
+        screenH = ::GetSystemMetrics(SM_CYSCREEN);
+    }
+    if (screenW <= 0) {
+        screenW = 1920;
+    }
+    if (screenH <= 0) {
+        screenH = 1080;
+    }
     int screenX = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
     int screenY = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
 
@@ -63,7 +70,7 @@ static void defaultSendTypeText(std::string_view text) {
 }
 
 ToolResult UIHandle::clickAt(int x, int y, std::string_view button, bool human) {
-    if (s_clickHandler) {
+    if (s_clickHandler != nullptr) {
         return s_clickHandler(x, y, button, human);
     }
     defaultSendMouseClick(x, y, button);
@@ -71,7 +78,7 @@ ToolResult UIHandle::clickAt(int x, int y, std::string_view button, bool human) 
 }
 
 ToolResult UIHandle::sendTypeText(std::string_view text) {
-    if (s_typeHandler) {
+    if (s_typeHandler != nullptr) {
         return s_typeHandler(text);
     }
     defaultSendTypeText(text);
@@ -79,7 +86,7 @@ ToolResult UIHandle::sendTypeText(std::string_view text) {
 }
 
 ToolResult UIHandle::sendKeyPress(std::string_view combo) {
-    if (s_keyHandler) {
+    if (s_keyHandler != nullptr) {
         return s_keyHandler(combo);
     }
     return err("Key press handler not configured");
@@ -94,7 +101,7 @@ UIHandle::UIHandle(UIElement el, const UIAutomationScanner* scanner)
 
 // ── parent() — find the parent of this element ─────────────────────────────────
 UIHandle UIHandle::parent() const {
-    if (!m_scanner || m_ownerHwnd == nullptr) {
+    if (m_scanner == nullptr || m_ownerHwnd == nullptr) {
         throw std::runtime_error("Cannot find parent: scanner or ownerHwnd is null");
     }
 
@@ -115,14 +122,16 @@ UIHandle UIHandle::parent() const {
 // Uses Win32 GetAncestor(GA_ROOT) to walk the HWND parent chain to the true
 // top-level application window — no UIA scan needed for the HWND lookup.
 UIHandle UIHandle::window() const {
-    if (!m_scanner || m_ownerHwnd == nullptr) {
+    if (m_scanner == nullptr || m_ownerHwnd == nullptr) {
         throw std::runtime_error("Cannot find window: scanner or ownerHwnd is null");
     }
 
     // GA_ROOT returns the topmost non-desktop ancestor HWND.
     // If m_ownerHwnd is already the root, it returns itself.
     HWND rootHwnd = ::GetAncestor(m_ownerHwnd, GA_ROOT);
-    if (!rootHwnd) rootHwnd = m_ownerHwnd; // fallback (shouldn't happen)
+    if (rootHwnd == nullptr) {
+        rootHwnd = m_ownerHwnd; // fallback (shouldn't happen)
+    }
 
     auto res = m_scanner->scanWindowByHandle(rootHwnd);
     if (!res) {
@@ -135,7 +144,7 @@ UIHandle UIHandle::window() const {
 // ── click() — click this element's center ────────────────────────────────────
 UIHandle& UIHandle::click() {
     // 1. Try high-reliability 'Invoke' pattern if supported
-    if (m_element.supportsInvoke && m_scanner) {
+    if (m_element.supportsInvoke && m_scanner != nullptr) {
         auto res = m_scanner->invokeElement(m_runtimeId);
         if (res) {
             WINBOT_INFO("Invoked Default Action for [{}] '{}'.", 
@@ -147,14 +156,16 @@ UIHandle& UIHandle::click() {
     }
 
     // 2. Fallback to physical mouse click
-    if (m_ownerHwnd) {
+    if (m_ownerHwnd != nullptr) {
         ::SetForegroundWindow(m_ownerHwnd);
         ::Sleep(100); // Give OS time to focus
     }
     auto pt = m_element.getCenter();
-    bool human = m_scanner ? m_scanner->getHumanMovement() : false;
+    bool human = (m_scanner != nullptr) ? m_scanner->getHumanMovement() : false;
     auto res = clickAt(pt.x, pt.y, "left", human);
-    if (!res) WINBOT_ERROR("UIHandle::click failed: {}", res.error());
+    if (!res) {
+        WINBOT_ERROR("UIHandle::click failed: {}", res.error());
+    }
     return *this;
 }
 
@@ -184,7 +195,9 @@ UIHandle& UIHandle::waitClick(std::string_view nameOrId, int timeoutMs, std::str
 // ── type(text) ────────────────────────────────────────────────────────────────
 UIHandle& UIHandle::type(std::string_view text) {
     auto res = sendTypeText(text);
-    if (!res) WINBOT_ERROR("UIHandle::type failed: {}", res.error());
+    if (!res) {
+        WINBOT_ERROR("UIHandle::type failed: {}", res.error());
+    }
     return *this;
 }
 
@@ -192,12 +205,14 @@ UIHandle& UIHandle::type(std::string_view text) {
 UIHandle& UIHandle::key(std::string_view combo) {
     // Ensure our window has focus before sending keystrokes — otherwise global
     // keys like Alt+F4 or Ctrl+S fire at whichever window the OS currently has focused.
-    if (m_ownerHwnd) {
+    if (m_ownerHwnd != nullptr) {
         ::SetForegroundWindow(m_ownerHwnd);
         ::Sleep(80); // Give OS time to switch focus
     }
     auto res = sendKeyPress(combo);
-    if (!res) WINBOT_ERROR("UIHandle::key('{}') failed: {}", combo, res.error());
+    if (!res) {
+        WINBOT_ERROR("UIHandle::key('{}') failed: {}", combo, res.error());
+    }
     return *this;
 }
 
@@ -238,7 +253,9 @@ UIHandle UIHandle::select(std::string_view nameOrId, int timeoutMs, std::string_
 }
 
 bool UIHandle::refresh() {
-    if (!m_scanner || !m_ownerHwnd) return false;
+    if (m_scanner == nullptr || m_ownerHwnd == nullptr) {
+        return false;
+    }
 
     // Window-level re-scan using HWND. This is robust for both Native and WebView
     // because it refreshes the entire application tree scoped to that window.

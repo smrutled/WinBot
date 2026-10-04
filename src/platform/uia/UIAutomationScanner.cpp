@@ -9,10 +9,10 @@
 #include <rpcndr.h>      // Defines MIDL_INTERFACE (must come before UIAutomation.h)
 #include <objbase.h>     // COM base (CoCreateInstance, etc.)
 #include <UIAutomation.h> // IUIAutomation, IUIAutomationElement, etc.
+#include "Common.h"
 
 #include <algorithm>
 #include <chrono>
-#include <future>
 #include <regex>
 #include <thread>
 
@@ -231,7 +231,6 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanDesktop() const {
     HRESULT hr = automation->GetRootElement(&root);
     if (FAILED(hr) || !root) return std::unexpected("Could not get desktop root element");
 
-    auto* cacheReq = reinterpret_cast<IUIAutomationCacheRequest*>(m_cacheRequest);
     auto* condition = reinterpret_cast<IUIAutomationCondition*>(m_trueCondition);
 
     // Populate desktop root element metadata
@@ -605,7 +604,7 @@ std::string UIAutomationScanner::serialize(const UIElement& el, int indent) {
         
         if (!el.value.empty()) {
             std::string dispVal = el.value;
-            std::replace(dispVal.begin(), dispVal.end(), '\n', ' ');
+            std::ranges::replace(dispVal, '\n', ' ');
             if (dispVal.length() > 60) dispVal = dispVal.substr(0, 57) + "...";
             out += std::format(" value=\"{}\"", dispVal);
         }

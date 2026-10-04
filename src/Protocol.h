@@ -29,17 +29,19 @@ struct Request {
 inline std::expected<Request, std::string> parseRequest(std::string_view line) {
     // Skip blank lines and comment lines
     size_t first = line.find_first_not_of(" \t\r\n");
-    if (first == std::string_view::npos || line[first] == '#')
+    if (first == std::string_view::npos || line.at(first) == '#') {
         return std::unexpected(std::string{});
+    }
 
     try {
         json j = json::parse(line);
         Request r;
         r.id   = j.value("id",   0);
         r.tool = j.value("tool", "");
-        r.args = j.contains("args") ? j["args"] : json::object();
-        if (r.tool.empty())
+        r.args = j.contains("args") ? j.at("args") : json::object();
+        if (r.tool.empty()) {
             return std::unexpected("Request missing 'tool' field");
+        }
         return r;
     } catch (const json::exception& e) {
         return std::unexpected(std::format("JSON parse error: {}", e.what()));

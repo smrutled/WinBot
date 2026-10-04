@@ -5,7 +5,11 @@
 #include "core/McpServer.h"
 
 #include <chrono>
+#include <cstddef>
+#include <memory>
 #include <sstream>
+#include <stop_token>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -33,7 +37,7 @@ public:
     [[nodiscard]] ToolResult execute(const json& args) override {
         return execute(args, std::stop_token{});
     }
-    [[nodiscard]] ToolResult execute(const json& /*args*/, std::stop_token stopToken) override {
+    [[nodiscard]] ToolResult execute(const json& /*args*/, const std::stop_token& stopToken) override {
         auto start = std::chrono::steady_clock::now();
         while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(200)) {
             if (stopToken.stop_requested()) {
@@ -98,18 +102,18 @@ TEST(McpServerConcurrencyTest, ParallelExecutionOrder) {
         }
     }
 
-    ASSERT_GE(responses.size(), 3u);
+    ASSERT_GE(responses.size(), 3U);
 
     // Response 0 should be initialize (id 1)
-    EXPECT_EQ(responses[0]["id"], 1);
+    EXPECT_EQ(responses.at(0).at("id"), 1);
 
     // Response 1 should be fast_tool (id 3) because it finishes before slow_cancelable (id 2)
-    EXPECT_EQ(responses[1]["id"], 3);
-    EXPECT_EQ(responses[1]["result"]["content"][0]["text"], "fast_done");
+    EXPECT_EQ(responses.at(1).at("id"), 3);
+    EXPECT_EQ(responses.at(1).at("result").at("content").at(0).at("text"), "fast_done");
 
     // Response 2 should be slow_cancelable (id 2)
-    EXPECT_EQ(responses[2]["id"], 2);
-    EXPECT_EQ(responses[2]["result"]["content"][0]["text"], "slow_done");
+    EXPECT_EQ(responses.at(2).at("id"), 2);
+    EXPECT_EQ(responses.at(2).at("result").at("content").at(0).at("text"), "slow_done");
 }
 
 TEST(McpServerConcurrencyTest, CancellationWithNotification) {
@@ -160,13 +164,13 @@ TEST(McpServerConcurrencyTest, CancellationWithNotification) {
         }
     }
 
-    ASSERT_EQ(responses.size(), 2u);
-    EXPECT_EQ(responses[0]["id"], 1);
+    ASSERT_EQ(responses.size(), 2U);
+    EXPECT_EQ(responses.at(0).at("id"), 1);
 
     // Cancelled response should return error with code -32800 (kRequestCancelled)
-    EXPECT_EQ(responses[1]["id"], 100);
-    ASSERT_TRUE(responses[1].contains("error"));
-    EXPECT_EQ(responses[1]["error"]["code"], -32800);
+    EXPECT_EQ(responses.at(1).at("id"), 100);
+    ASSERT_TRUE(responses.at(1).contains("error"));
+    EXPECT_EQ(responses.at(1).at("error").at("code"), -32800);
 }
 
 TEST(McpServerConcurrencyTest, HighConcurrencyStreamIntegrity) {
@@ -263,8 +267,10 @@ TEST(McpServerTest, EmitsToolsListChangedNotification) {
     while (std::getline(out, line)) {
         if (!line.empty() && line.find_first_not_of(" \t\r\n") != std::string::npos) {
             json msg = json::parse(line);
-            if (msg.contains("result") && msg["result"].contains("capabilities")) {
-                if (msg["result"]["capabilities"]["tools"]["listChanged"] == true) {
+            if (msg.contains("result") && msg.at("result").contains("capabilities")) {
+                const auto& caps = msg.at("result").at("capabilities");
+                if (caps.contains("tools") && caps.at("tools").contains("listChanged") &&
+                    caps.at("tools").at("listChanged") == true) {
                     foundListChangedCapability = true;
                 }
             }

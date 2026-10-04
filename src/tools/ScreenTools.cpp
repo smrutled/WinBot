@@ -7,22 +7,28 @@ namespace tools {
 ToolResult uiScan() {
     UIAutomationScanner uia;
     auto result = uia.scanFocusedWindow();
-    if (!result) return err(result.error());
+    if (!result) {
+        return err(result.error());
+    }
     return ok(UIAutomationScanner::serialize(*result));
 }
 
 ToolResult screenshot() {
     auto result = ScreenCapture::captureDesktop();
-    if (!result) return err(result.error());
+    if (!result) {
+        return err(result.error());
+    }
     return ok(std::format("Screenshot: {}x{} ({} bytes)", result->width, result->height, result->pngBytes.size()));
 }
 
 } // namespace tools
 
 // ── ScreenshotDesktopTool ────────────────────────────────────────────────────
-ToolResult ScreenshotDesktopTool::execute(const json&) {
+ToolResult ScreenshotDesktopTool::execute(const json& /*args*/) {
     auto r = ScreenCapture::captureDesktop();
-    if (!r) return err(r.error());
+    if (!r) {
+        return err(r.error());
+    }
     json result = {
         {"width", r->width},
         {"height", r->height},
@@ -53,21 +59,27 @@ json ScreenshotWindowTool::parametersSchema() const {
 }
 
 ToolResult ScreenshotWindowTool::execute(const json& args) {
-    if (!m_uia) return err("UIAutomationScanner not available");
+    if (m_uia == nullptr) {
+        return err("UIAutomationScanner not available");
+    }
 
     std::string title = args.value("title", "");
     bool bringToFront = args.value("bring_to_front", false);
 
     auto tree = m_uia->scanWindow(title);
-    if (!tree) return err(tree.error());
+    if (!tree) {
+        return err(tree.error());
+    }
 
     HWND hwnd = tree->ownerHwnd;
-    if (!hwnd) {
+    if (hwnd == nullptr) {
         return err(std::format("Found UIA element for '{}' but no HWND", title));
     }
 
     auto r = ScreenCapture::captureWindow(hwnd, bringToFront);
-    if (!r) return err(r.error());
+    if (!r) {
+        return err(r.error());
+    }
 
     json result = {
         {"width", r->width},
@@ -94,17 +106,19 @@ json ScreenshotElementTool::parametersSchema() const {
 
 ToolResult ScreenshotElementTool::execute(const json& args) {
     RECT region{
-        args.value("left", 0),
-        args.value("top", 0),
-        args.value("right", 0),
-        args.value("bottom", 0)
+        .left = args.value("left", 0),
+        .top = args.value("top", 0),
+        .right = args.value("right", 0),
+        .bottom = args.value("bottom", 0)
     };
     if (region.right <= region.left || region.bottom <= region.top) {
         return err("Invalid region: right must be > left and bottom must be > top");
     }
 
     auto r = ScreenCapture::captureRegion(region);
-    if (!r) return err(r.error());
+    if (!r) {
+        return err(r.error());
+    }
 
     json result = {
         {"width", r->width},

@@ -22,8 +22,8 @@ TEST(ToolRegistryTest, DispatchCatchesStdException) {
 
     auto result = registry.dispatch(call);
     EXPECT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().find("failing_tool") != std::string::npos);
-    EXPECT_TRUE(result.error().find("Simulated hardware/subsystem fault") != std::string::npos);
+    EXPECT_TRUE(result.error().contains("failing_tool"));
+    EXPECT_TRUE(result.error().contains("Simulated hardware/subsystem fault"));
 }
 
 TEST(ToolRegistryTest, DispatchCatchesNonStdException) {
@@ -44,8 +44,8 @@ TEST(ToolRegistryTest, DispatchCatchesNonStdException) {
 
     auto result = registry.dispatch(call);
     EXPECT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().find("non_std_thrower") != std::string::npos);
-    EXPECT_TRUE(result.error().find("unknown exception") != std::string::npos);
+    EXPECT_TRUE(result.error().contains("non_std_thrower"));
+    EXPECT_TRUE(result.error().contains("unknown exception"));
 }
 
 TEST(ToolRegistryTest, DispatchMissingToolField) {
@@ -54,7 +54,7 @@ TEST(ToolRegistryTest, DispatchMissingToolField) {
 
     auto result = registry.dispatch(call);
     EXPECT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().find("missing 'tool' field") != std::string::npos);
+    EXPECT_TRUE(result.error().contains("missing 'tool' field"));
 }
 
 TEST(ToolRegistryTest, DispatchUnknownTool) {
@@ -66,14 +66,14 @@ TEST(ToolRegistryTest, DispatchUnknownTool) {
 
     auto result = registry.dispatch(call);
     EXPECT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().find("Unknown tool") != std::string::npos);
+    EXPECT_TRUE(result.error().contains("Unknown tool"));
 }
 
 TEST(ToolRegistryTest, DispatchRawMalformedJson) {
     ToolRegistry registry;
     auto result = registry.dispatchRaw("{ this is not valid json }");
     EXPECT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().find("JSON parse error") != std::string::npos);
+    EXPECT_TRUE(result.error().contains("JSON parse error"));
 }
 
 } // namespace

@@ -50,13 +50,13 @@ protected:
     std::filesystem::remove_all(m_tempDir, ec);
   }
 
-  std::filesystem::path m_tempDir;
-  std::unique_ptr<SiteProfileRegistry> m_profiles;
-  std::unique_ptr<UIAutomationScanner> m_uia;
-  std::unique_ptr<PermissionSystem> m_perms;
-  std::unique_ptr<LuaRuntime> m_lua;
-  std::unique_ptr<ToolRegistry> m_registry;
-  std::unique_ptr<LuaToolLoader> m_loader;
+  std::filesystem::path m_tempDir; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+  std::unique_ptr<SiteProfileRegistry> m_profiles; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+  std::unique_ptr<UIAutomationScanner> m_uia; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+  std::unique_ptr<PermissionSystem> m_perms; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+  std::unique_ptr<LuaRuntime> m_lua; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+  std::unique_ptr<ToolRegistry> m_registry; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
+  std::unique_ptr<LuaToolLoader> m_loader; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
 };
 
 // ── Test 1: Load Single Tool Script ──────────────────────────────────────────
@@ -184,10 +184,10 @@ TEST_F(LuaToolLoaderTest, TableReturnValueFormatsAsJson) {
   ASSERT_TRUE(res.has_value()) << res.error();
 
   json parsed = json::parse(*res);
-  EXPECT_EQ(parsed["status"], "ok");
-  EXPECT_EQ(parsed["code"], 200);
-  EXPECT_EQ(parsed["items"].size(), 2);
-  EXPECT_EQ(parsed["items"][0], "alpha");
+  EXPECT_EQ(parsed.at("status"), "ok");
+  EXPECT_EQ(parsed.at("code"), 200);
+  EXPECT_EQ(parsed.at("items").size(), 2);
+  EXPECT_EQ(parsed.at("items").at(0), "alpha");
 }
 
 // ── Test 4: Dynamic Hot-Reload (Add, Modify, Remove)
@@ -301,9 +301,9 @@ TEST_F(LuaToolLoaderTest, CalculatorLuaSuiteLoadsAndRegisters) {
   json schema = m_registry->buildToolsSchema();
   bool foundCalc = false;
   for (const auto &t : schema) {
-    if (t["name"] == "calc_calculate") {
+    if (t.value("name", "") == "calc_calculate") {
       foundCalc = true;
-      EXPECT_TRUE(t["schema"]["properties"].contains("expression"));
+      EXPECT_TRUE(t.at("schema").at("properties").contains("expression"));
     }
   }
   EXPECT_TRUE(foundCalc);
@@ -315,16 +315,17 @@ TEST_F(LuaToolLoaderTest, CalculatorLuaSuiteLoadsAndRegisters) {
   bool foundClear = false;
 
   for (const auto &t : schema) {
-    if (t["name"] == "calc_calculate") {
+    auto tName = t.value("name", "");
+    if (tName == "calc_calculate") {
       foundCalculate = true;
-      EXPECT_TRUE(t["schema"]["properties"].contains("expression"));
-      EXPECT_TRUE(t["schema"]["properties"].contains("clear_first"));
-    } else if (t["name"] == "calc_press") {
+      EXPECT_TRUE(t.at("schema").at("properties").contains("expression"));
+      EXPECT_TRUE(t.at("schema").at("properties").contains("clear_first"));
+    } else if (tName == "calc_press") {
       foundPress = true;
-      EXPECT_TRUE(t["schema"]["properties"].contains("button"));
-    } else if (t["name"] == "calc_get_display") {
+      EXPECT_TRUE(t.at("schema").at("properties").contains("button"));
+    } else if (tName == "calc_get_display") {
       foundGetDisplay = true;
-    } else if (t["name"] == "calc_clear") {
+    } else if (tName == "calc_clear") {
       foundClear = true;
     }
   }

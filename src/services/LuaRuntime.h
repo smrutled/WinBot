@@ -32,6 +32,8 @@ public:
     // Disable copy/move
     LuaRuntime(const LuaRuntime&) = delete;
     LuaRuntime& operator=(const LuaRuntime&) = delete;
+    LuaRuntime(LuaRuntime&&) = delete;
+    LuaRuntime& operator=(LuaRuntime&&) = delete;
 
     // Execute inline Lua script string
     ToolResult execString(std::string_view code);
