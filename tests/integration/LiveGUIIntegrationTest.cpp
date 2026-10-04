@@ -1,24 +1,25 @@
-#include <gtest/gtest.h>
 #include "TestHelpers.h"
+#include "core/ToolRegistry.h"
+#include "platform/screen/ScreenCapture.h"
+#include "platform/uia/UIADebugger.h"
 #include "platform/uia/UIAutomationScanner.h"
 #include "platform/uia/UIHandle.h"
-#include "platform/uia/UIADebugger.h"
-#include "platform/screen/ScreenCapture.h"
 #include "services/LuaRuntime.h"
 #include "services/LuaToolLoader.h"
 #include "tools/LuaScriptTool.h"
-#include "core/ToolRegistry.h"
 #include "tools/WindowTools.h"
+#include <gtest/gtest.h>
 
-#include <windows.h>
 #include <atomic>
 #include <chrono>
 #include <print>
 #include <thread>
+#include <windows.h>
 
-// ── In-Process Native Win32 Test GUI Window ───────────────────────────────────
-// Creates a 100% self-contained native GUI window with button, edit, and label
-// controls to test UI automation and event firing reliably across all environments.
+// ── In-Process Native Win32 Test GUI Window
+// ─────────────────────────────────── Creates a 100% self-contained native GUI
+// window with button, edit, and label controls to test UI automation and event
+// firing reliably across all environments.
 class MockWin32Window {
 public:
   static inline std::atomic<bool> s_buttonClicked{false};
@@ -56,7 +57,8 @@ private:
   std::thread m_thread;
   std::atomic<bool> m_isReady{false};
 
-    static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+  static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam,
+                                  LPARAM lParam) {
     switch (msg) {
     case WM_COMMAND: {
       WORD id = LOWORD(wParam);
@@ -87,35 +89,26 @@ private:
     wc.hCursor = ::LoadCursor(nullptr, IDC_ARROW);
     ::RegisterClassExW(&wc);
 
-        s_hwndMain = ::CreateWindowExW(
-            0, L"WinBotMockAppClass", L"WinBot Native Test App",
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            100, 100, 450, 320,
-            nullptr, nullptr, hInst, nullptr
-        );
+    s_hwndMain =
+        ::CreateWindowExW(0, L"WinBotMockAppClass", L"WinBot Native Test App",
+                          WS_OVERLAPPEDWINDOW | WS_VISIBLE, 100, 100, 450, 320,
+                          nullptr, nullptr, hInst, nullptr);
 
-        if (!s_hwndMain) return;
+    if (!s_hwndMain)
+      return;
 
     s_hwndBtn = ::CreateWindowExW(
-            0, L"BUTTON", L"Click Me",
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            20, 20, 140, 40,
-            s_hwndMain, reinterpret_cast<HMENU>(101), hInst, nullptr
-        );
+        0, L"BUTTON", L"Click Me", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20,
+        20, 140, 40, s_hwndMain, reinterpret_cast<HMENU>(101), hInst, nullptr);
 
     s_hwndEdit = ::CreateWindowExW(
-            WS_EX_CLIENTEDGE, L"EDIT", L"",
-            WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-            20, 80, 240, 35,
-            s_hwndMain, reinterpret_cast<HMENU>(102), hInst, nullptr
-        );
+        WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+        20, 80, 240, 35, s_hwndMain, reinterpret_cast<HMENU>(102), hInst,
+        nullptr);
 
     s_hwndLabel = ::CreateWindowExW(
-            0, L"STATIC", L"Status: Idle",
-            WS_CHILD | WS_VISIBLE,
-            20, 140, 240, 35,
-            s_hwndMain, reinterpret_cast<HMENU>(103), hInst, nullptr
-        );
+        0, L"STATIC", L"Status: Idle", WS_CHILD | WS_VISIBLE, 20, 140, 240, 35,
+        s_hwndMain, reinterpret_cast<HMENU>(103), hInst, nullptr);
 
     ::ShowWindow(s_hwndMain, SW_SHOW);
     ::UpdateWindow(s_hwndMain);
@@ -131,7 +124,8 @@ private:
   }
 };
 
-// ── Test 1: Native Win32 Test App (Runs everywhere, fully deterministic) ──────
+// ── Test 1: Native Win32 Test App (Runs everywhere, fully deterministic)
+// ──────
 TEST(LiveGUITest, NativeWin32App_ButtonClickAndStateVerification) {
   MockWin32Window mockApp;
   ASSERT_TRUE(mockApp.isReady()) << "Failed to initialize mock Win32 window";
@@ -140,7 +134,8 @@ TEST(LiveGUITest, NativeWin32App_ButtonClickAndStateVerification) {
 
   // 1. Scan window by handle
   auto winRes = scanner.scanWindowByHandle(mockApp.getHwnd());
-    ASSERT_TRUE(winRes.has_value()) << "Failed to scan native test window: " << winRes.error();
+  ASSERT_TRUE(winRes.has_value())
+      << "Failed to scan native test window: " << winRes.error();
 
   UIHandle appHandle(std::move(*winRes), &scanner);
 
@@ -185,13 +180,15 @@ TEST(LiveGUITest, NativeWin32App_DebuggerDotChaining) {
   EXPECT_TRUE(MockWin32Window::s_buttonClicked.load());
 }
 
-// ── ScreenCapture captureWindow Tests ─────────────────────────────────────────
+// ── ScreenCapture captureWindow Tests
+// ─────────────────────────────────────────
 TEST(LiveGUITest, CaptureWindow_Offscreen_MockWin32Window) {
   MockWin32Window mockApp;
   ASSERT_TRUE(mockApp.isReady()) << "Failed to initialize mock Win32 window";
 
   auto res = ScreenCapture::captureWindow(mockApp.getHwnd(), false);
-  ASSERT_TRUE(res.has_value()) << "Offscreen capture failed: " << (res ? "" : res.error());
+  ASSERT_TRUE(res.has_value())
+      << "Offscreen capture failed: " << (res ? "" : res.error());
   EXPECT_GT(res->width, 0);
   EXPECT_GT(res->height, 0);
   EXPECT_FALSE(res->pngBytes.empty());
@@ -208,7 +205,8 @@ TEST(LiveGUITest, CaptureWindow_BringToFront_MockWin32Window) {
   ASSERT_TRUE(mockApp.isReady()) << "Failed to initialize mock Win32 window";
 
   auto res = ScreenCapture::captureWindow(mockApp.getHwnd(), true);
-  ASSERT_TRUE(res.has_value()) << "Foreground capture failed: " << (res ? "" : res.error());
+  ASSERT_TRUE(res.has_value())
+      << "Foreground capture failed: " << (res ? "" : res.error());
   EXPECT_GT(res->width, 0);
   EXPECT_GT(res->height, 0);
   EXPECT_FALSE(res->pngBytes.empty());
@@ -225,21 +223,23 @@ TEST(LiveGUITest, CaptureWindow_MinimizedWindow_MockWin32Window) {
   EXPECT_TRUE(::IsIconic(mockApp.getHwnd()));
 
   auto res = ScreenCapture::captureWindow(mockApp.getHwnd(), false);
-  ASSERT_TRUE(res.has_value()) << "Capture of minimized window failed: " << (res ? "" : res.error());
+  ASSERT_TRUE(res.has_value())
+      << "Capture of minimized window failed: " << (res ? "" : res.error());
   EXPECT_GT(res->width, 0);
   EXPECT_GT(res->height, 0);
   EXPECT_FALSE(res->pngBytes.empty());
 }
 
-// ── Test 2: Notepad E2E Live GUI Test ─────────────────────────────────────────
+// ── Test 2: Notepad E2E Live GUI Test
+// ─────────────────────────────────────────
 class NotepadLiveGUITest : public ::testing::Test {
 protected:
   PROCESS_INFORMATION pi{};
 
   void SetUp() override {
-        STARTUPINFO si{ sizeof(si) };
-        CreateProcessW(L"C:\\Windows\\System32\\notepad.exe", nullptr,
-                       nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi);
+    STARTUPINFO si{sizeof(si)};
+    CreateProcessW(L"C:\\Windows\\System32\\notepad.exe", nullptr, nullptr,
+                   nullptr, FALSE, 0, nullptr, nullptr, &si, &pi);
   }
 
   void TearDown() override {
@@ -249,7 +249,8 @@ protected:
       CloseHandle(pi.hThread);
     }
     // Ensure no lingering notepad process
-        system("powershell -Command \"Stop-Process -Name 'notepad' -Force -ErrorAction SilentlyContinue\"");
+    system("powershell -Command \"Stop-Process -Name 'notepad' -Force "
+           "-ErrorAction SilentlyContinue\"");
   }
 };
 
@@ -258,27 +259,27 @@ TEST_F(NotepadLiveGUITest, ControlNotepadWindow) {
 
   auto notepadRes = scanner.waitForWindow("Notepad", 4000);
   if (!notepadRes.has_value()) {
-        GTEST_SKIP() << "Notepad window not available in current session: " << notepadRes.error();
+    GTEST_SKIP() << "Notepad window not available in current session: "
+                 << notepadRes.error();
   }
 
   UIHandle notepad = std::move(*notepadRes);
   EXPECT_NE(notepad.element().name.find("Notepad"), std::string::npos);
 
   // Type text into the live Notepad editor
-    EXPECT_NO_THROW({
-        notepad.type("WinBot Automated Testing Verified!");
-    });
+  EXPECT_NO_THROW({ notepad.type("WinBot Automated Testing Verified!"); });
 }
 
-// ── Test 3: Calculator E2E Live GUI Test ───────────────────────────────────────
+// ── Test 3: Calculator E2E Live GUI Test
+// ───────────────────────────────────────
 class CalculatorLiveGUITest : public ::testing::Test {
 protected:
   PROCESS_INFORMATION pi{};
 
   void SetUp() override {
-        STARTUPINFO si{ sizeof(si) };
-        CreateProcessW(L"C:\\Windows\\System32\\calc.exe", nullptr,
-                       nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi);
+    STARTUPINFO si{sizeof(si)};
+    CreateProcessW(L"C:\\Windows\\System32\\calc.exe", nullptr, nullptr,
+                   nullptr, FALSE, 0, nullptr, nullptr, &si, &pi);
   }
 
   void TearDown() override {
@@ -288,16 +289,18 @@ protected:
       CloseHandle(pi.hThread);
     }
     // Ensure no lingering Calculator processes
-        system("powershell -Command \"Stop-Process -Name '*calc*' -Force -ErrorAction SilentlyContinue\"");
+    system("powershell -Command \"Stop-Process -Name '*calc*' -Force "
+           "-ErrorAction SilentlyContinue\"");
   }
 };
 
 TEST_F(CalculatorLiveGUITest, ControlCalculatorWindow) {
   UIAutomationScanner scanner;
 
-    auto calcRes = scanner.waitForWindow("Calculator", 4000);
+  auto calcRes = scanner.waitForWindow("Calculator", 4000);
   if (!calcRes.has_value()) {
-        GTEST_SKIP() << "Calculator window not instantiated in current session (requires interactive desktop): " 
+    GTEST_SKIP() << "Calculator window not instantiated in current session "
+                    "(requires interactive desktop): "
                  << calcRes.error();
   }
 
@@ -321,11 +324,12 @@ TEST_F(CalculatorLiveGUITest, ControlCalculatorViaLuaScript) {
 
   auto calcRes = scanner.waitForWindow("Calculator", 4000);
   if (!calcRes.has_value()) {
-    GTEST_SKIP() << "Calculator window not instantiated in current session (requires interactive desktop): " 
+    GTEST_SKIP() << "Calculator window not instantiated in current session "
+                    "(requires interactive desktop): "
                  << calcRes.error();
   }
 
-  const char* script = R"(
+  const char *script = R"(
     local calc = winbot.waitForWindow("Calculator", 4000)
     if not calc then return "calc_not_found" end
 
@@ -348,7 +352,8 @@ TEST_F(CalculatorLiveGUITest, ControlCalculatorViaCalculatorLuaToolSuite) {
   UIAutomationScanner scanner;
   auto calcRes = scanner.waitForWindow("Calculator", 4000);
   if (!calcRes.has_value()) {
-    GTEST_SKIP() << "Calculator window not instantiated in current session (requires interactive desktop): " 
+    GTEST_SKIP() << "Calculator window not instantiated in current session "
+                    "(requires interactive desktop): "
                  << calcRes.error();
   }
 
@@ -364,11 +369,8 @@ TEST_F(CalculatorLiveGUITest, ControlCalculatorViaCalculatorLuaToolSuite) {
   ASSERT_GE(count, 4);
   ASSERT_TRUE(registry.hasTool("calc_calculate"));
 
-  auto res = registry.dispatch({
-    {"tool", "calc_calculate"},
-    {"args", {{"expression", "10 + 20"}}}
-  });
+  auto res = registry.dispatch(
+      {{"tool", "calc_calculate"}, {"args", {{"expression", "10 + 20"}}}});
   ASSERT_TRUE(res.has_value()) << res.error();
   EXPECT_TRUE(res->find("30") != std::string::npos);
 }
-
