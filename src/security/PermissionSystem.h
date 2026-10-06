@@ -10,6 +10,7 @@
 // All paths come from config.json at startup.
 class PermissionSystem {
 public:
+    // NOLINTBEGIN(bugprone-exception-escape) - MSVC std::unordered_set move-ctor is not noexcept
     struct Config {
         std::vector<std::string> allowedPaths;
         std::vector<std::string> blockedPaths;
@@ -23,6 +24,7 @@ public:
         // Supports individual tool names or group aliases (e.g. "shell", "browser").
         std::unordered_set<std::string> disabledTools;
     };
+    // NOLINTEND(bugprone-exception-escape)
 
     explicit PermissionSystem(Config cfg);
 

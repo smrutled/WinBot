@@ -13,7 +13,7 @@ TEST(ScreenCaptureTest, CaptureRegionValid) {
     EXPECT_FALSE(result->pngBytes.empty());
 
     // Verify PNG magic header: 0x89 'P' 'N' 'G'
-    ASSERT_GE(result->pngBytes.size(), 4u);
+    ASSERT_GE(result->pngBytes.size(), 4U);
     EXPECT_EQ(result->pngBytes[0], 0x89);
     EXPECT_EQ(result->pngBytes[1], 'P');
     EXPECT_EQ(result->pngBytes[2], 'N');

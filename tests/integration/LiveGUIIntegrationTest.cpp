@@ -6,8 +6,10 @@
 #include "platform/uia/UIHandle.h"
 #include "services/LuaRuntime.h"
 #include "services/LuaToolLoader.h"
+#include <bit>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -104,16 +106,16 @@ private:
 
     s_hwndBtn = ::CreateWindowExW(
         0, L"BUTTON", L"Click Me", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20,
-        20, 140, 40, s_hwndMain, reinterpret_cast<HMENU>(101), hInst, nullptr);
+        20, 140, 40, s_hwndMain, std::bit_cast<HMENU>(static_cast<uintptr_t>(101)), hInst, nullptr);
 
     s_hwndEdit = ::CreateWindowExW(
         WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-        20, 80, 240, 35, s_hwndMain, reinterpret_cast<HMENU>(102), hInst,
+        20, 80, 240, 35, s_hwndMain, std::bit_cast<HMENU>(static_cast<uintptr_t>(102)), hInst,
         nullptr);
 
     s_hwndLabel = ::CreateWindowExW(
         0, L"STATIC", L"Status: Idle", WS_CHILD | WS_VISIBLE, 20, 140, 240, 35,
-        s_hwndMain, reinterpret_cast<HMENU>(103), hInst, nullptr);
+        s_hwndMain, std::bit_cast<HMENU>(static_cast<uintptr_t>(103)), hInst, nullptr);
 
     ::ShowWindow(s_hwndMain, SW_SHOW);
     ::UpdateWindow(s_hwndMain);
@@ -158,9 +160,10 @@ TEST(LiveGUITest, NativeWin32App_ButtonClickAndStateVerification) {
   EXPECT_TRUE(MockWin32Window::s_buttonClicked.load());
 
   // 4. Verify label text changed to "Status: Clicked!"
-  wchar_t labelText[128]{};
-  ::GetWindowTextW(MockWin32Window::s_hwndLabel, labelText, 128);
-  EXPECT_STREQ(labelText, L"Status: Clicked!");
+  std::array<wchar_t, 128> labelText{};
+  ::GetWindowTextW(MockWin32Window::s_hwndLabel, labelText.data(),
+                   static_cast<int>(labelText.size()));
+  EXPECT_STREQ(labelText.data(), L"Status: Clicked!");
 }
 
 TEST(LiveGUITest, NativeWin32App_DebuggerDotChaining) {
@@ -198,11 +201,11 @@ TEST(LiveGUITest, CaptureWindow_Offscreen_MockWin32Window) {
   EXPECT_GT(res->height, 0);
   EXPECT_FALSE(res->pngBytes.empty());
   // Verify PNG header: 0x89 'P' 'N' 'G'
-  ASSERT_GE(res->pngBytes.size(), 8u);
-  EXPECT_EQ(res->pngBytes[0], 0x89);
-  EXPECT_EQ(res->pngBytes[1], 'P');
-  EXPECT_EQ(res->pngBytes[2], 'N');
-  EXPECT_EQ(res->pngBytes[3], 'G');
+  ASSERT_GE(res->pngBytes.size(), 8U);
+  EXPECT_EQ(res->pngBytes.at(0), 0x89);
+  EXPECT_EQ(res->pngBytes.at(1), 'P');
+  EXPECT_EQ(res->pngBytes.at(2), 'N');
+  EXPECT_EQ(res->pngBytes.at(3), 'G');
 }
 
 TEST(LiveGUITest, CaptureWindow_BringToFront_MockWin32Window) {
@@ -215,8 +218,8 @@ TEST(LiveGUITest, CaptureWindow_BringToFront_MockWin32Window) {
   EXPECT_GT(res->width, 0);
   EXPECT_GT(res->height, 0);
   EXPECT_FALSE(res->pngBytes.empty());
-  ASSERT_GE(res->pngBytes.size(), 8u);
-  EXPECT_EQ(res->pngBytes[0], 0x89);
+  ASSERT_GE(res->pngBytes.size(), 8U);
+  EXPECT_EQ(res->pngBytes.at(0), 0x89);
 }
 
 TEST(LiveGUITest, CaptureWindow_MinimizedWindow_MockWin32Window) {
@@ -239,7 +242,7 @@ TEST(LiveGUITest, CaptureWindow_MinimizedWindow_MockWin32Window) {
 // ─────────────────────────────────────────
 class NotepadLiveGUITest : public ::testing::Test {
 protected:
-  PROCESS_INFORMATION pi{};
+  PROCESS_INFORMATION pi{}; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
 
   void SetUp() override {
     STARTUPINFO si{};
@@ -255,6 +258,7 @@ protected:
       CloseHandle(pi.hThread);
     }
     // Ensure no lingering notepad process
+    // NOLINTNEXTLINE(bugprone-command-processor,cert-env33-c) - Test fixture cleanup helper
     system("powershell -Command \"Stop-Process -Name 'notepad' -Force "
            "-ErrorAction SilentlyContinue\"");
   }
@@ -280,7 +284,7 @@ TEST_F(NotepadLiveGUITest, ControlNotepadWindow) {
 // ───────────────────────────────────────
 class CalculatorLiveGUITest : public ::testing::Test {
 protected:
-  PROCESS_INFORMATION pi{};
+  PROCESS_INFORMATION pi{}; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
 
   void SetUp() override {
     STARTUPINFO si{};
@@ -296,6 +300,7 @@ protected:
       CloseHandle(pi.hThread);
     }
     // Ensure no lingering Calculator processes
+    // NOLINTNEXTLINE(bugprone-command-processor,cert-env33-c) - Test fixture cleanup helper
     system("powershell -Command \"Stop-Process -Name '*calc*' -Force "
            "-ErrorAction SilentlyContinue\"");
   }

@@ -73,6 +73,7 @@ public:
     }
 
 private:
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
     UIAutomationScanner& m_uia;
 
     // Session state

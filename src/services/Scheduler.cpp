@@ -1,5 +1,6 @@
 #include "services/Scheduler.h"
 #include "Common.h"
+#include <array>
 #include <sstream>
 #include <chrono>
 
@@ -62,19 +63,24 @@ void Scheduler::workerLoop(const std::stop_token& stopToken) {
 }
 
 bool Scheduler::cronMatches(const std::string& expr, const std::tm& t) noexcept {
-    // Parse: "Min Hour Day Month Weekday" (5 space-separated fields)
-    std::istringstream ss(expr);
-    std::string fields[5];
-    for (auto& f : fields) {
-        if (!(ss >> f)) {
-            return false;
+    try {
+        // Parse: "Min Hour Day Month Weekday" (5 space-separated fields)
+        std::istringstream ss(expr);
+        std::array<std::string, 5> fields{};
+        for (auto& f : fields) {
+            if (!(ss >> f)) {
+                return false;
+            }
         }
+        const auto& [minute, hour, day, month, weekday] = fields;
+        return cronFieldMatches(minute,  t.tm_min,  0, 59) &&
+               cronFieldMatches(hour,    t.tm_hour, 0, 23) &&
+               cronFieldMatches(day,     t.tm_mday, 1, 31) &&
+               cronFieldMatches(month,   t.tm_mon + 1, 1, 12) &&
+               cronFieldMatches(weekday, t.tm_wday, 0, 6);
+    } catch (...) {
+        return false;
     }
-    return cronFieldMatches(fields[0], t.tm_min,  0, 59) &&
-           cronFieldMatches(fields[1], t.tm_hour, 0, 23) &&
-           cronFieldMatches(fields[2], t.tm_mday, 1, 31) &&
-           cronFieldMatches(fields[3], t.tm_mon + 1, 1, 12) &&
-           cronFieldMatches(fields[4], t.tm_wday, 0, 6);
 }
 
 bool Scheduler::cronFieldMatches(const std::string& field, int value, int min, [[maybe_unused]] int max) noexcept {

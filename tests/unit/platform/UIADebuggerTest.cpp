@@ -111,7 +111,7 @@ TEST(UIADebuggerTest, SessionStateClear) {
 
     UIElement calcTree = createCalculatorTree();
     debugger.setVar("$calc", UIHandle(calcTree, &scanner));
-    debugger.setVar("$btn", UIHandle(calcTree.children[1].children[0], &scanner));
+    debugger.setVar("$btn", UIHandle(calcTree.children.at(1).children.at(0), &scanner));
 
     EXPECT_EQ(debugger.getVars().size(), 2);
 

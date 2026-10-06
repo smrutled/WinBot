@@ -37,13 +37,13 @@ BrowserAutomation::BrowserAutomation(int debugPort, std::string_view browserExe)
 
 BrowserAutomation::~BrowserAutomation() {
     if (m_wsHandle != nullptr) {
-        ::WinHttpCloseHandle(reinterpret_cast<HINTERNET>(m_wsHandle));
+        ::WinHttpCloseHandle(static_cast<HINTERNET>(m_wsHandle));
     }
     if (m_conn != nullptr) {
-        ::WinHttpCloseHandle(reinterpret_cast<HINTERNET>(m_conn));
+        ::WinHttpCloseHandle(static_cast<HINTERNET>(m_conn));
     }
     if (m_session != nullptr) {
-        ::WinHttpCloseHandle(reinterpret_cast<HINTERNET>(m_session));
+        ::WinHttpCloseHandle(static_cast<HINTERNET>(m_session));
     }
 }
 
@@ -130,7 +130,7 @@ bool BrowserAutomation::connectToPage() {
     }
 
     HINTERNET conn = ::WinHttpConnect(
-        reinterpret_cast<HINTERNET>(m_session),
+        static_cast<HINTERNET>(m_session),
         L"localhost",
         static_cast<INTERNET_PORT>(m_port),
         0
@@ -175,10 +175,11 @@ bool BrowserAutomation::wsSend(std::string_view message) {
         return false;
     }
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+    void* buffer = const_cast<char*>(message.data());
     DWORD err = ::WinHttpWebSocketSend(
-        reinterpret_cast<HINTERNET>(m_wsHandle),
+        static_cast<HINTERNET>(m_wsHandle),
         WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE,
-        const_cast<void*>(reinterpret_cast<const void*>(message.data())),
+        buffer,
         static_cast<DWORD>(message.size())
     );
     if (err != ERROR_SUCCESS) {
@@ -199,7 +200,7 @@ std::expected<std::string, std::string> BrowserAutomation::wsReceive(int /*timeo
     WINHTTP_WEB_SOCKET_BUFFER_TYPE bufType{};
 
     DWORD err = ::WinHttpWebSocketReceive(
-        reinterpret_cast<HINTERNET>(m_wsHandle),
+        static_cast<HINTERNET>(m_wsHandle),
         response.data(),
         static_cast<DWORD>(response.size()),
         &bytesRead,
@@ -253,7 +254,9 @@ std::expected<json, std::string> BrowserAutomation::sendCdpCommand(
                 }
                 return resp.value("result", json::object());
             }
-        } catch (const std::exception&) {}
+        } catch (const std::exception& e) {
+            WINBOT_WARN("sendCdpCommand: ignoring non-matching CDP frame or parse error: {}", e.what());
+        }
     }
 }
 
@@ -313,7 +316,9 @@ ToolResult BrowserAutomation::clickSelector(std::string_view selector) {
                 }
                 ::Sleep(50);
             }
-        } catch (const std::exception&) {}
+        } catch (const std::exception& e) {
+            WINBOT_WARN("click: could not resolve coordinates, falling back to JS click: {}", e.what());
+        }
     }
 
     // Always dispatch the actual click via JS to guarantee execution even if browser is in background

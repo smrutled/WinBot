@@ -20,9 +20,10 @@
 // PNG write callback that appends to a std::vector<uint8_t>
 // ──────────────────────────────────────────────────────────────────────────────
 static void pngWriteCallback(void* ctx, void* data, int size) {
-    auto* vec = reinterpret_cast<std::vector<uint8_t>*>(ctx);
-    auto* bytes = reinterpret_cast<uint8_t*>(data);
-    vec->insert(vec->end(), bytes, bytes + size);
+    auto* vec = static_cast<std::vector<uint8_t>*>(ctx);
+    auto* bytes = static_cast<uint8_t*>(data);
+    std::span<const uint8_t> span(bytes, size);
+    vec->insert(vec->end(), span.begin(), span.end());
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -82,22 +83,22 @@ ScreenCapture::captureHdc(HDC srcDc, int x, int y, int w, int h) {
         return std::unexpected("CreateCompatibleBitmap failed");
     }
 
-    auto *old = reinterpret_cast<HBITMAP>(::SelectObject(memDc, bmp));
+    auto *old = static_cast<HBITMAP>(::SelectObject(memDc, bmp));
 
     ::BitBlt(memDc, 0, 0, w, h, srcDc, x, y, SRCCOPY);
 
     // Extract raw pixel data
-    BITMAPINFOHEADER bi{};
-    bi.biSize        = sizeof(bi);
-    bi.biWidth       = w;
-    bi.biHeight      = -h;  // top-down
-    bi.biPlanes      = 1;
-    bi.biBitCount    = 32;
-    bi.biCompression = BI_RGB;
+    BITMAPINFO bi{};
+    bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth       = w;
+    bi.bmiHeader.biHeight      = -h;  // top-down
+    bi.bmiHeader.biPlanes      = 1;
+    bi.bmiHeader.biBitCount    = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
 
     std::vector<uint8_t> pixels(static_cast<size_t>(w * h * 4));
     ::GetDIBits(memDc, bmp, 0, h, pixels.data(),
-        reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
+        &bi, DIB_RGB_COLORS);
 
     ::SelectObject(memDc, old);
     ::DeleteObject(bmp);
@@ -143,20 +144,21 @@ static bool isAllBlank(std::span<const uint8_t> bgra, int width, int height) {
         return true;
     }
 
-    const auto* p = reinterpret_cast<const uint32_t*>(bgra.data());
     size_t step = (count / 500 > 1) ? (count / 500) : 1;
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
     for (size_t i = 0; i < count; i += step) {
-        if ((p[i] & 0x00FFFFFF) != 0) {
+        size_t idx = i * 4;
+        if (bgra[idx] != 0 || bgra[idx + 1] != 0 || bgra[idx + 2] != 0) {
             return false;
         }
     }
     for (size_t i = 0; i < count; ++i) {
-        if ((p[i] & 0x00FFFFFF) != 0) {
+        size_t idx = i * 4;
+        if (bgra[idx] != 0 || bgra[idx + 1] != 0 || bgra[idx + 2] != 0) {
             return false;
         }
     }
-    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    // NOLINTEND(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
     return true;
 }
 
@@ -189,7 +191,7 @@ ScreenCapture::captureWindowOffscreen(HWND hwnd) {
         ::ReleaseDC(nullptr, screenDc);
         return std::unexpected("CreateCompatibleBitmap failed");
     }
-    auto *oldBmp = reinterpret_cast<HBITMAP>(::SelectObject(memDc, bmp));
+    auto *oldBmp = static_cast<HBITMAP>(::SelectObject(memDc, bmp));
 
     BOOL pwOk = ::PrintWindow(hwnd, memDc, PW_RENDERFULLCONTENT);
 
@@ -212,7 +214,7 @@ ScreenCapture::captureWindowOffscreen(HWND hwnd) {
             cropDc = ::CreateCompatibleDC(screenDc);
             cropBmp = (cropDc != nullptr) ? ::CreateCompatibleBitmap(screenDc, fw, fh) : nullptr;
             if (cropDc != nullptr && cropBmp != nullptr) {
-                cropOld = reinterpret_cast<HBITMAP>(::SelectObject(cropDc, cropBmp));
+                cropOld = static_cast<HBITMAP>(::SelectObject(cropDc, cropBmp));
                 ::BitBlt(cropDc, 0, 0, fw, fh, memDc, ox, oy, SRCCOPY);
                 captureDc = cropDc;
                 finalW = fw;
@@ -230,18 +232,18 @@ ScreenCapture::captureWindowOffscreen(HWND hwnd) {
         }
     }
 
-    BITMAPINFOHEADER bi{};
-    bi.biSize = sizeof(bi);
-    bi.biWidth = finalW;
-    bi.biHeight = -finalH; // top-down
-    bi.biPlanes = 1;
-    bi.biBitCount = 32;
-    bi.biCompression = BI_RGB;
+    BITMAPINFO bi{};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = finalW;
+    bi.bmiHeader.biHeight = -finalH; // top-down
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
 
     std::vector<uint8_t> pixels(static_cast<size_t>(finalW * finalH * 4));
     HBITMAP activeBmp = (cropBmp != nullptr ? cropBmp : bmp);
     ::GetDIBits(captureDc, activeBmp, 0, finalH, pixels.data(),
-                reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
+                &bi, DIB_RGB_COLORS);
 
     if (cropDc != nullptr) {
         ::SelectObject(cropDc, cropOld);
@@ -364,7 +366,7 @@ ScreenCapture::captureWindow(std::string_view titleSubstr, bool bringToFront) {
     Candidate best{ .hwnd = nullptr, .score = 0 };
     auto ctx_sc = std::make_pair(&wq, &best);
     ::EnumWindows([](HWND h, LPARAM lp) -> BOOL {
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
+        // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
         auto* ctx = reinterpret_cast<std::pair<std::wstring*, Candidate*>*>(lp);
         const std::wstring& q = *ctx->first;
         Candidate& best       = *ctx->second;
@@ -374,7 +376,7 @@ ScreenCapture::captureWindow(std::string_view titleSubstr, bool bringToFront) {
         }
         std::array<wchar_t, 512> buf{};
         ::GetWindowTextW(h, buf.data(), static_cast<int>(buf.size()));
-        if (buf.at(0) == L'\0') {
+        if (buf.front() == L'\0') {
             return TRUE;
         }
 
@@ -394,6 +396,7 @@ ScreenCapture::captureWindow(std::string_view titleSubstr, bool bringToFront) {
             best = { .hwnd = h, .score = score };
         }
         return TRUE;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     }, reinterpret_cast<LPARAM>(&ctx_sc));
 
     if (best.hwnd == nullptr) {

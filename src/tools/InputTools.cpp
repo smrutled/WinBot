@@ -2,6 +2,7 @@
 #include "platform/uia/UIHandle.h"
 #include "platform/browser/BrowserAutomation.h"
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <mutex>
@@ -13,6 +14,7 @@ namespace tools {
 static std::recursive_mutex s_inputMutex;
 
 // ── Mouse helpers ─────────────────────────────────────────────────────────────
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) - Established Win32 mouse event signature (x, y, flags, data)
 static void sendMouseEvent(int x, int y, DWORD flags, DWORD data = 0) {
     int screenW = ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int screenH = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
@@ -31,12 +33,14 @@ static void sendMouseEvent(int x, int y, DWORD flags, DWORD data = 0) {
     int screenX = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
     int screenY = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
 
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
     INPUT input{};
     input.type           = INPUT_MOUSE;
     input.mi.dx          = static_cast<LONG>((x - screenX) * 65535 / screenW);
     input.mi.dy          = static_cast<LONG>((y - screenY) * 65535 / screenH);
     input.mi.dwFlags     = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | flags;
     input.mi.mouseData   = data;
+    // NOLINTEND(cppcoreguidelines-pro-type-union-access)
     ::SendInput(1, &input, sizeof(INPUT));
 }
 
@@ -222,10 +226,12 @@ static const std::unordered_map<std::string, int> kKeyMap = {
 };
 
 static void sendKeyEvent(WORD vk, bool down) {
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
     INPUT input{};
     input.type        = INPUT_KEYBOARD;
     input.ki.wVk      = vk;
     input.ki.dwFlags  = down ? 0 : KEYEVENTF_KEYUP;
+    // NOLINTEND(cppcoreguidelines-pro-type-union-access)
     ::SendInput(1, &input, sizeof(INPUT));
 }
 
@@ -255,7 +261,7 @@ ToolResult keyPress(std::string_view combo) {
             vk = static_cast<WORD>(it->second);
             isModifier = (vk == VK_CONTROL || vk == VK_MENU || vk == VK_SHIFT || vk == VK_LWIN);
         } else if (token.size() == 1) {
-            vk = static_cast<WORD>(::VkKeyScanA(token[0]) & 0xFF);
+            vk = static_cast<WORD>(::VkKeyScanA(token.at(0)) & 0xFF);
         }
 
         if (vk != 0) {
@@ -295,13 +301,16 @@ ToolResult typeText(std::string_view text) {
     std::scoped_lock lock(s_inputMutex);
     // Type each character using KEYEVENTF_UNICODE for full Unicode support
     for (char32_t c : text) {
-        INPUT inputs[2]{};
-        inputs[0].type            = INPUT_KEYBOARD;
-        inputs[0].ki.wScan        = static_cast<WORD>(c);
-        inputs[0].ki.dwFlags      = KEYEVENTF_UNICODE;
-        inputs[1]                 = inputs[0];
-        inputs[1].ki.dwFlags     |= KEYEVENTF_KEYUP;
-        ::SendInput(2, inputs, sizeof(INPUT));
+        std::array<INPUT, 2> inputs{};
+        auto& [keyDown, keyUp] = inputs; // fixed size: bounds verified at compile time
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
+        keyDown.type        = INPUT_KEYBOARD;
+        keyDown.ki.wScan    = static_cast<WORD>(c);
+        keyDown.ki.dwFlags  = KEYEVENTF_UNICODE;
+        keyUp               = keyDown;
+        keyUp.ki.dwFlags   |= KEYEVENTF_KEYUP;
+        // NOLINTEND(cppcoreguidelines-pro-type-union-access)
+        ::SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
         ::Sleep(5); // Small delay between characters for reliability
     }
     return ok(std::format("Typed {} characters", text.size()));

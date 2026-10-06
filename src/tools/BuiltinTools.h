@@ -209,6 +209,7 @@ private:
 };
 
 // ── Registration Dependency Container & Factory ──────────────────────────────
+// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
 struct BuiltinToolDependencies {
     UIAutomationScanner& uia;
     BrowserAutomation&   browser;
@@ -217,6 +218,7 @@ struct BuiltinToolDependencies {
     LuaRuntime&          luaRuntime;
     LuaToolLoader*       luaToolLoader = nullptr;
 };
+// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 
 namespace BuiltinTools {
 

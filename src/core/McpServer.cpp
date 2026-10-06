@@ -330,96 +330,105 @@ void McpServer::handleToolsCall(const json& id, const json& params) {
         m_activeRequests.insert_or_assign(reqKey, activeReq);
     }
 
+    // NOLINTNEXTLINE(bugprone-exception-escape) - Task lambda catches all exceptions internally
     m_threadPool->enqueue([this, id, toolName, args, activeReq, reqKey]() {
-        // Ensure request is deregistered from active map on exit
-        struct ActiveGuard {
-            McpServer* server{nullptr};
-            std::string key;
+        try {
+            // Ensure request is deregistered from active map on exit
+            struct ActiveGuard {
+                McpServer* server{nullptr};
+                std::string key;
 
-            ActiveGuard(McpServer* s, std::string k)
-                : server(s), key(std::move(k)) {}
-            ~ActiveGuard() {
-                if (server != nullptr) {
-                    std::scoped_lock lock(server->m_requestsMutex);
-                    server->m_activeRequests.erase(key);
+                ActiveGuard(McpServer* s, std::string k)
+                    : server(s), key(std::move(k)) {}
+                ~ActiveGuard() {
+                    if (server != nullptr) {
+                        std::scoped_lock lock(server->m_requestsMutex);
+                        server->m_activeRequests.erase(key);
+                    }
                 }
+                ActiveGuard(const ActiveGuard&) = delete;
+                ActiveGuard& operator=(const ActiveGuard&) = delete;
+                ActiveGuard(ActiveGuard&&) = delete;
+                ActiveGuard& operator=(ActiveGuard&&) = delete;
+            };
+            ActiveGuard guard{this, reqKey};
+
+            std::stop_token stopToken = activeReq->stopSource.get_token();
+
+            // 1. Check if cancelled before execution started
+            if (stopToken.stop_requested() || activeReq->cancelled.load(std::memory_order_acquire)) {
+                WINBOT_INFO("McpServer: Tool '{}' (id={}) cancelled before execution.", toolName, reqKey);
+                sendError(id, kRequestCancelled, "Request cancelled by client");
+                return;
             }
-            ActiveGuard(const ActiveGuard&) = delete;
-            ActiveGuard& operator=(const ActiveGuard&) = delete;
-            ActiveGuard(ActiveGuard&&) = delete;
-            ActiveGuard& operator=(ActiveGuard&&) = delete;
-        };
-        ActiveGuard guard{this, reqKey};
 
-        std::stop_token stopToken = activeReq->stopSource.get_token();
+            // 2. Dispatch with cooperative cancellation token
+            auto result = m_tools.dispatch(json{{"tool", toolName}, {"args", args}}, stopToken);
 
-        // 1. Check if cancelled before execution started
-        if (stopToken.stop_requested() || activeReq->cancelled.load(std::memory_order_acquire)) {
-            WINBOT_INFO("McpServer: Tool '{}' (id={}) cancelled before execution.", toolName, reqKey);
-            sendError(id, kRequestCancelled, "Request cancelled by client");
-            return;
-        }
+            // 3. Check if cancelled during execution
+            if (stopToken.stop_requested() || activeReq->cancelled.load(std::memory_order_acquire)) {
+                WINBOT_INFO("McpServer: Tool '{}' (id={}) cancelled during execution.", toolName, reqKey);
+                sendError(id, kRequestCancelled, "Request cancelled by client");
+                return;
+            }
 
-        // 2. Dispatch with cooperative cancellation token
-        auto result = m_tools.dispatch(json{{"tool", toolName}, {"args", args}}, stopToken);
+            // 4. Send tool result
+            if (result) {
+                json content = json::array();
+                bool hasImage = false;
+                try {
+                    json parsed = json::parse(*result);
+                    if (parsed.is_object() && parsed.contains("data") &&
+                        parsed.contains("format") && parsed.at("format") == "png") {
+                        hasImage = true;
+                        content.push_back({
+                            {"type", "text"},
+                            {"text", std::format("Screenshot captured: {}x{} px",
+                                     parsed.value("width", 0),
+                                     parsed.value("height", 0))}
+                        });
+                        content.push_back({
+                            {"type", "image"},
+                            {"data", parsed.at("data")},
+                            {"mimeType", "image/png"}
+                        });
+                    }
+                } catch (const std::exception& e) {
+                    (void)e; // Not valid JSON or not an image
+                }
 
-        // 3. Check if cancelled during execution
-        if (stopToken.stop_requested() || activeReq->cancelled.load(std::memory_order_acquire)) {
-            WINBOT_INFO("McpServer: Tool '{}' (id={}) cancelled during execution.", toolName, reqKey);
-            sendError(id, kRequestCancelled, "Request cancelled by client");
-            return;
-        }
-
-        // 4. Send tool result
-        if (result) {
-            json content = json::array();
-            bool hasImage = false;
-            try {
-                json parsed = json::parse(*result);
-                if (parsed.is_object() && parsed.contains("data") &&
-                    parsed.contains("format") && parsed.at("format") == "png") {
-                    hasImage = true;
+                if (!hasImage) {
                     content.push_back({
                         {"type", "text"},
-                        {"text", std::format("Screenshot captured: {}x{} px",
-                                 parsed.value("width", 0),
-                                 parsed.value("height", 0))}
-                    });
-                    content.push_back({
-                        {"type", "image"},
-                        {"data", parsed.at("data")},
-                        {"mimeType", "image/png"}
+                        {"text", *result}
                     });
                 }
-            } catch (const std::exception& e) {
-                (void)e; // Not valid JSON or not an image
-            }
 
-            if (!hasImage) {
+                sendResult(id, {{"content", content}, {"isError", false}});
+            } else {
+                json content = json::array();
                 content.push_back({
                     {"type", "text"},
-                    {"text", *result}
+                    {"text", result.error()}
                 });
+                sendResult(id, {{"content", content}, {"isError", true}});
             }
 
-            sendResult(id, {{"content", content}, {"isError", false}});
-        } else {
-            json content = json::array();
-            content.push_back({
-                {"type", "text"},
-                {"text", result.error()}
-            });
-            sendResult(id, {{"content", content}, {"isError", true}});
-        }
-
-        // 5. Optional inter-action delay (interruptible by cancellation or server shutdown)
-        if (m_cfg.actionDelayMs > 0 && !stopToken.stop_requested()) {
-            auto start = std::chrono::steady_clock::now();
-            auto duration = std::chrono::milliseconds(m_cfg.actionDelayMs);
-            while (m_running && !stopToken.stop_requested() &&
-                   (std::chrono::steady_clock::now() - start < duration)) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            // 5. Optional inter-action delay (interruptible by cancellation or server shutdown)
+            if (m_cfg.actionDelayMs > 0 && !stopToken.stop_requested()) {
+                auto start = std::chrono::steady_clock::now();
+                auto duration = std::chrono::milliseconds(m_cfg.actionDelayMs);
+                while (m_running && !stopToken.stop_requested() &&
+                       (std::chrono::steady_clock::now() - start < duration)) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
             }
+        } catch (const std::exception& ex) {
+            WINBOT_ERROR("Unhandled exception in McpServer tool task: {}", ex.what());
+            sendError(id, kInternalError, std::format("Internal error: {}", ex.what()));
+        } catch (...) {
+            WINBOT_ERROR("Unknown unhandled exception in McpServer tool task");
+            sendError(id, kInternalError, "Unknown internal error");
         }
     });
 }

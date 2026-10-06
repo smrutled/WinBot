@@ -1,4 +1,5 @@
 #include "platform/uia/UIHandle.h"
+#include <array>
 #include <stdexcept>
 #include <thread>
 #include <chrono>
@@ -41,30 +42,36 @@ static void defaultSendMouseClick(int x, int y, std::string_view button) {
         upFlag   = MOUSEEVENTF_MIDDLEUP;
     }
 
-    INPUT inputs[3]{};
-    inputs[0].type = INPUT_MOUSE;
-    inputs[0].mi.dx = static_cast<LONG>((x - screenX) * 65535 / screenW);
-    inputs[0].mi.dy = static_cast<LONG>((y - screenY) * 65535 / screenH);
-    inputs[0].mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_MOVE;
+    std::array<INPUT, 3> inputs{};
+    auto& [move, down, up] = inputs; // fixed size: bounds verified at compile time
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
+    move.type = INPUT_MOUSE;
+    move.mi.dx = static_cast<LONG>((x - screenX) * 65535 / screenW);
+    move.mi.dy = static_cast<LONG>((y - screenY) * 65535 / screenH);
+    move.mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_MOVE;
 
-    inputs[1].type = INPUT_MOUSE;
-    inputs[1].mi.dwFlags = downFlag;
+    down.type = INPUT_MOUSE;
+    down.mi.dwFlags = downFlag;
 
-    inputs[2].type = INPUT_MOUSE;
-    inputs[2].mi.dwFlags = upFlag;
+    up.type = INPUT_MOUSE;
+    up.mi.dwFlags = upFlag;
+    // NOLINTEND(cppcoreguidelines-pro-type-union-access)
 
-    ::SendInput(3, inputs, sizeof(INPUT));
+    ::SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
 }
 
 static void defaultSendTypeText(std::string_view text) {
     for (char32_t c : text) {
-        INPUT inputs[2]{};
-        inputs[0].type = INPUT_KEYBOARD;
-        inputs[0].ki.wScan = static_cast<WORD>(c);
-        inputs[0].ki.dwFlags = KEYEVENTF_UNICODE;
-        inputs[1] = inputs[0];
-        inputs[1].ki.dwFlags |= KEYEVENTF_KEYUP;
-        ::SendInput(2, inputs, sizeof(INPUT));
+        std::array<INPUT, 2> inputs{};
+        auto& [keyDown, keyUp] = inputs; // fixed size: bounds verified at compile time
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
+        keyDown.type = INPUT_KEYBOARD;
+        keyDown.ki.wScan = static_cast<WORD>(c);
+        keyDown.ki.dwFlags = KEYEVENTF_UNICODE;
+        keyUp = keyDown;
+        keyUp.ki.dwFlags |= KEYEVENTF_KEYUP;
+        // NOLINTEND(cppcoreguidelines-pro-type-union-access)
+        ::SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
         ::Sleep(5);
     }
 }

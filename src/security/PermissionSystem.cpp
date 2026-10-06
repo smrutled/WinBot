@@ -26,10 +26,10 @@ static bool isSubpathOrEqual(const std::filesystem::path& base, const std::files
     }
 
     // If drive root like "c:" make sure it has trailing slash "c:\"
-    if (bStr.size() == 2 && bStr[1] == L':') {
+    if (bStr.size() == 2 && bStr.at(1) == L':') {
         bStr += L'\\';
     }
-    if (tStr.size() == 2 && tStr[1] == L':') {
+    if (tStr.size() == 2 && tStr.at(1) == L':') {
         tStr += L'\\';
     }
 
@@ -49,7 +49,7 @@ static bool isSubpathOrEqual(const std::filesystem::path& base, const std::files
         if (bStr.ends_with(L'\\')) {
             return true;
         }
-        if (tStr.size() > bStr.size() && tStr[bStr.size()] == L'\\') {
+        if (tStr.size() > bStr.size() && tStr.at(bStr.size()) == L'\\') {
             return true;
         }
     }
@@ -78,7 +78,7 @@ std::string PermissionSystem::expandEnv(std::string_view path) {
     out.reserve(result.size());
     size_t i = 0;
     while (i < result.size()) {
-        if (result[i] == '%') {
+        if (result.at(i) == '%') {
             auto end = result.find('%', i + 1);
             if (end != std::string::npos) {
                 std::string varName = result.substr(i + 1, end - i - 1);
@@ -99,7 +99,7 @@ std::string PermissionSystem::expandEnv(std::string_view path) {
                 continue;
             }
         }
-        out += result[i++];
+        out += result.at(i++);
     }
     return out;
 }
@@ -199,7 +199,9 @@ ToolResult PermissionSystem::checkProcess(std::string_view name) const {
             pid = static_cast<DWORD>(val);
             isPid = true;
         }
-    } catch (...) {}
+    } catch (const std::exception&) {
+        isPid = false;
+    }
 
     // Special case for critical Windows kernel PIDs
     if (isPid && (pid == 0 || pid == 4)) {
@@ -213,14 +215,12 @@ ToolResult PermissionSystem::checkProcess(std::string_view name) const {
         if (snap != INVALID_HANDLE_VALUE) {
             PROCESSENTRY32W entry{};
             entry.dwSize = sizeof(entry);
-            if (::Process32FirstW(snap, &entry) != 0) {
-                do {
-                    if (entry.th32ProcessID == pid) {
-                        procExeName = wide_to_utf8(entry.szExeFile);
-                        to_lower_inplace(procExeName);
-                        break;
-                    }
-                } while (::Process32NextW(snap, &entry) != 0);
+            for (BOOL hasProcess = ::Process32FirstW(snap, &entry); hasProcess != 0; hasProcess = ::Process32NextW(snap, &entry)) {
+                if (entry.th32ProcessID == pid) {
+                    procExeName = wide_to_utf8(static_cast<const wchar_t*>(entry.szExeFile));
+                    to_lower_inplace(procExeName);
+                    break;
+                }
             }
             ::CloseHandle(snap);
         }
@@ -296,7 +296,9 @@ ToolResult PermissionSystem::checkShellCommand(std::string_view cmd) const {
             for (const auto& p : patterns) {
                 try {
                     compiled.emplace_back(p, std::regex_constants::icase | std::regex_constants::ECMAScript);
-                } catch (...) {}
+                } catch (const std::regex_error& e) {
+                    WINBOT_WARN("Failed to compile dangerous regex pattern '{}': {}", p, e.what());
+                }
             }
             return compiled;
         }();

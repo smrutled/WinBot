@@ -85,7 +85,7 @@ void KillSwitch::uninstall() noexcept {
 LRESULT CALLBACK KillSwitch::lowLevelKeyboardProc(int nCode, WPARAM wParam,
                                                   LPARAM lParam) noexcept {
   if (nCode == HC_ACTION && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)) {
-    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
     const auto *kbd = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
     bool ctrlDown = (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
     bool altDown = (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;

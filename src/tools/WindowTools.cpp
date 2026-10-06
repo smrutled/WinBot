@@ -1,4 +1,5 @@
 #include "tools/WindowTools.h"
+#include <array>
 #include <tlhelp32.h>
 #include <psapi.h>
 #include <pdh.h>
@@ -10,18 +11,20 @@ namespace tools {
 ToolResult getWindowList() {
     std::string result;
 
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr) - Win32 EnumWindows LPARAM context passing
     ::EnumWindows([](HWND hwnd, LPARAM lp) -> BOOL {
         auto* out = reinterpret_cast<std::string*>(lp);
         if (!::IsWindowVisible(hwnd)) return TRUE;
-        wchar_t title[256]{};
-        ::GetWindowTextW(hwnd, title, 256);
-        if (title[0] == L'\0') return TRUE;
+        std::array<wchar_t, 256> title{};
+        ::GetWindowTextW(hwnd, title.data(), static_cast<int>(title.size()));
+        if (title.front() == L'\0') return TRUE;
         DWORD pid = 0;
         ::GetWindowThreadProcessId(hwnd, &pid);
         *out += std::format("[HWND:0x{:08X} PID:{}] {}\n",
-            reinterpret_cast<uintptr_t>(hwnd), pid, wide_to_utf8(title));
+            reinterpret_cast<uintptr_t>(hwnd), pid, wide_to_utf8(title.data()));
         return TRUE;
     }, reinterpret_cast<LPARAM>(&result));
+    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
 
     return ok(result.empty() ? "(no visible windows)" : result);
 }
@@ -68,14 +71,16 @@ ToolResult focusWindow(std::string_view title) {
     struct Candidate { HWND hwnd; int score; };
     Candidate best{ nullptr, 0 };
     auto ctx_f = std::make_pair(&wq, &best);
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr) - Win32 EnumWindows LPARAM context passing
     ::EnumWindows([](HWND h, LPARAM lp) -> BOOL {
         auto* ctx = reinterpret_cast<std::pair<std::wstring*, Candidate*>*>(lp);
         const std::wstring& q = *ctx->first;
         Candidate& best       = *ctx->second;
         if (!::IsWindowVisible(h)) return TRUE;
-        wchar_t buf[512]{}; ::GetWindowTextW(h, buf, 512);
-        if (buf[0] == L'\0') return TRUE;
-        std::wstring t(buf); to_lower_inplace(t);
+        std::array<wchar_t, 512> buf{};
+        ::GetWindowTextW(h, buf.data(), static_cast<int>(buf.size()));
+        if (buf.front() == L'\0') return TRUE;
+        std::wstring t(buf.data()); to_lower_inplace(t);
         int score = 0;
         if      (t == q)            score = 3;
         else if (t.starts_with(q)) score = 2;
@@ -83,6 +88,7 @@ ToolResult focusWindow(std::string_view title) {
         if (score > best.score) best = { h, score };
         return TRUE;
     }, reinterpret_cast<LPARAM>(&ctx_f));
+    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
 
     if (!best.hwnd) return err(std::format("Window '{}' not found", title));
     bringWindowToForeground(best.hwnd);
@@ -96,14 +102,16 @@ ToolResult closeWindow(std::string_view title) {
     struct Candidate { HWND hwnd; int score; };
     Candidate best{ nullptr, 0 };
     auto ctx_c = std::make_pair(&wq, &best);
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr) - Win32 EnumWindows LPARAM context passing
     ::EnumWindows([](HWND h, LPARAM lp) -> BOOL {
         auto* ctx = reinterpret_cast<std::pair<std::wstring*, Candidate*>*>(lp);
         const std::wstring& q = *ctx->first;
         Candidate& best       = *ctx->second;
         if (!::IsWindowVisible(h)) return TRUE;
-        wchar_t buf[512]{}; ::GetWindowTextW(h, buf, 512);
-        if (buf[0] == L'\0') return TRUE;
-        std::wstring t(buf); to_lower_inplace(t);
+        std::array<wchar_t, 512> buf{};
+        ::GetWindowTextW(h, buf.data(), static_cast<int>(buf.size()));
+        if (buf.front() == L'\0') return TRUE;
+        std::wstring t(buf.data()); to_lower_inplace(t);
         int score = 0;
         if      (t == q)            score = 3;
         else if (t.starts_with(q)) score = 2;
@@ -111,6 +119,7 @@ ToolResult closeWindow(std::string_view title) {
         if (score > best.score) best = { h, score };
         return TRUE;
     }, reinterpret_cast<LPARAM>(&ctx_c));
+    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
 
     if (!best.hwnd) return err(std::format("Window '{}' not found", title));
     ::PostMessageW(best.hwnd, WM_CLOSE, 0, 0);
@@ -154,11 +163,9 @@ ToolResult getProcesses() {
     std::string result;
     PROCESSENTRY32W entry{};
     entry.dwSize = sizeof(entry);
-    if (::Process32FirstW(snap, &entry)) {
-        do {
-            result += std::format("[PID:{}] {}\n",
-                entry.th32ProcessID, wide_to_utf8(entry.szExeFile));
-        } while (::Process32NextW(snap, &entry));
+    for (BOOL hasProcess = ::Process32FirstW(snap, &entry); hasProcess != FALSE; hasProcess = ::Process32NextW(snap, &entry)) {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay) - szExeFile is a fixed C-array from Win32 API
+        result += std::format("[PID:{}] {}\n", entry.th32ProcessID, wide_to_utf8(entry.szExeFile));
     }
     ::CloseHandle(snap);
     return ok(result);
@@ -171,17 +178,19 @@ ToolResult killProcess(std::string_view nameOrPid) {
     catch (...) {
         // Search by name
         HANDLE snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        PROCESSENTRY32W entry{};
-        entry.dwSize = sizeof(entry);
-        std::wstring wname = utf8_to_wide(nameOrPid);
-        if (::Process32FirstW(snap, &entry)) {
-            do {
+        if (snap != INVALID_HANDLE_VALUE) {
+            PROCESSENTRY32W entry{};
+            entry.dwSize = sizeof(entry);
+            std::wstring wname = utf8_to_wide(nameOrPid);
+            for (BOOL hasProcess = ::Process32FirstW(snap, &entry); hasProcess != FALSE; hasProcess = ::Process32NextW(snap, &entry)) {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay) - szExeFile is a fixed C-array from Win32 API
                 if (std::wstring_view{ entry.szExeFile } == wname) {
-                    pid = entry.th32ProcessID; break;
+                    pid = entry.th32ProcessID;
+                    break;
                 }
-            } while (::Process32NextW(snap, &entry));
+            }
+            ::CloseHandle(snap);
         }
-        ::CloseHandle(snap);
     }
     if (!pid) return err(std::format("Process '{}' not found", nameOrPid));
 
@@ -194,7 +203,8 @@ ToolResult killProcess(std::string_view nameOrPid) {
 }
 
 ToolResult getSystemInfo() {
-    MEMORYSTATUSEX mem{ .dwLength = sizeof(MEMORYSTATUSEX) };
+    MEMORYSTATUSEX mem{};
+    mem.dwLength = sizeof(MEMORYSTATUSEX);
     ::GlobalMemoryStatusEx(&mem);
 
     SYSTEM_INFO si{};
@@ -205,8 +215,8 @@ ToolResult getSystemInfo() {
         "RAM total: {} MB\n"
         "RAM available: {} MB ({}% used)\n",
         si.dwNumberOfProcessors,
-        mem.ullTotalPhys / (1024*1024),
-        mem.ullAvailPhys / (1024*1024),
+        mem.ullTotalPhys / (1024ULL * 1024ULL),
+        mem.ullAvailPhys / (1024ULL * 1024ULL),
         mem.dwMemoryLoad
     ));
 }
@@ -222,7 +232,7 @@ ToolResult getCursorPosition() {
 #include "security/PermissionSystem.h"
 
 // ── WindowListTool ───────────────────────────────────────────────────────────
-ToolResult WindowListTool::execute(const json&) {
+ToolResult WindowListTool::execute(const json& /*args*/) {
     return tools::getWindowList();
 }
 
@@ -257,7 +267,7 @@ ToolResult CloseWindowTool::execute(const json& args) {
 }
 
 // ── GetClipboardTool ─────────────────────────────────────────────────────────
-ToolResult GetClipboardTool::execute(const json&) {
+ToolResult GetClipboardTool::execute(const json& /*args*/) {
     return tools::getClipboard();
 }
 
@@ -277,7 +287,7 @@ ToolResult SetClipboardTool::execute(const json& args) {
 }
 
 // ── GetProcessesTool ─────────────────────────────────────────────────────────
-ToolResult GetProcessesTool::execute(const json&) {
+ToolResult GetProcessesTool::execute(const json& /*args*/) {
     return tools::getProcesses();
 }
 
@@ -302,12 +312,12 @@ ToolResult KillProcessTool::execute(const json& args) {
 }
 
 // ── GetSystemInfoTool ────────────────────────────────────────────────────────
-ToolResult GetSystemInfoTool::execute(const json&) {
+ToolResult GetSystemInfoTool::execute(const json& /*args*/) {
     return tools::getSystemInfo();
 }
 
 // ── GetCursorPositionTool ────────────────────────────────────────────────────
-ToolResult GetCursorPositionTool::execute(const json&) {
+ToolResult GetCursorPositionTool::execute(const json& /*args*/) {
     return tools::getCursorPosition();
 }
 

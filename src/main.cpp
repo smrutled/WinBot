@@ -16,6 +16,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <span>
 
 
 // ── Load config.json ─────────────────────────────────────────────────────────
@@ -198,134 +199,148 @@ static std::filesystem::path resolveAppPath(const std::filesystem::path &exeDir,
 // ── Entry point
 // ───────────────────────────────────────────────────────────────
 int main(int argc, char *argv[]) {
-  // ── High DPI Awareness ────────────────────────────────────────────────────
-  // Without this, GetWindowRect and BitBlt will fail to return correct
-  // coordinates or content on systems with display scaling (e.g. 150%).
-  ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+  try {
+    const std::span<char* const> args(argv, argv != nullptr ? static_cast<size_t>(argc) : 0);
 
-  ::SetConsoleOutputCP(CP_UTF8);
-  ::SetConsoleCP(CP_UTF8);
+    // ── High DPI Awareness ────────────────────────────────────────────────────
+    // Without this, GetWindowRect and BitBlt will fail to return correct
+    // coordinates or content on systems with display scaling (e.g. 150%).
+    ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-  // ── Check for --mcp mode ──────────────────────────────────────────────────
-  // When running as an MCP subprocess, stdout must be clean JSON only.
-  for (int i = 1; i < argc; ++i) {
-    if (std::string_view(argv[i]) == "--mcp") {
-      g_mcpMode = true;
-      break;
+    ::SetConsoleOutputCP(CP_UTF8);
+    ::SetConsoleCP(CP_UTF8);
+
+    // ── Check for --mcp mode ──────────────────────────────────────────────────
+    // When running as an MCP subprocess, stdout must be clean JSON only.
+    if (!args.empty()) {
+      for (const auto* arg : args.subspan(1)) {
+        if (std::string_view(arg) == "--mcp") {
+          g_mcpMode = true;
+          break;
+        }
+      }
     }
-  }
 
-  if (!g_mcpMode) {
-    (void)std::fputs("\n"
-               "__        __ _       ____        _\n"
-               "\\ \\      / /(_)_ __ | __ )  ___ | |_\n"
-               " \\ \\ /\\ / / | | '_ \\|  _ \\ / _ \\| __|\n"
-               "  \\ V  V /  | | | | | |_) | (_) | |_\n"
-               "   \\_/\\_/   |_|_| |_|____/ \\___/ \\__|\n"
-               "  Windows UI Automation Tool Server\n"
-               "  "
-               "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-               "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-               "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-               "\u2500\u2500\u2500\u2500\n"
-               "  Protocol: newline-delimited JSON over stdin/stdout\n"
-               "  Send  {\"id\":1,\"tool\":\"list_tools\",\"args\":{}} to "
-               "discover all tools.\n"
-               "\n",
-               stdout);
-  }
+    if (!g_mcpMode) {
+      (void)std::fputs("\n"
+                 "__        __ _       ____        _\n"
+                 "\\ \\      / /(_)_ __ | __ )  ___ | |_\n"
+                 " \\ \\ /\\ / / | | '_ \\|  _ \\ / _ \\| __|\n"
+                 "  \\ V  V /  | | | | | |_) | (_) | |_\n"
+                 "   \\_/\\_/   |_|_| |_|____/ \\___/ \\__|\n"
+                 "  Windows UI Automation Tool Server\n"
+                 "  "
+                 "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+                 "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+                 "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+                 "\u2500\u2500\u2500\u2500\n"
+                 "  Protocol: newline-delimited JSON over stdin/stdout\n"
+                 "  Send  {\"id\":1,\"tool\":\"list_tools\",\"args\":{}} to "
+                 "discover all tools.\n"
+                 "\n",
+                 stdout);
+    }
 
-  // ── Config ────────────────────────────────────────────────────────────────
-  auto exeDir = getExecutableDir();
-  auto configPath = resolveAppPath(exeDir, "config.json");
-  auto cfg = loadConfig(configPath);
-  auto dataDir = resolveAppPath(exeDir, "data");
+    // ── Config ────────────────────────────────────────────────────────────────
+    auto exeDir = getExecutableDir();
+    auto configPath = resolveAppPath(exeDir, "config.json");
+    auto cfg = loadConfig(configPath);
+    auto dataDir = resolveAppPath(exeDir, "data");
 
-  // ── Kill-switch ───────────────────────────────────────────────────────────
-  std::string killHotkey = cfg.value("kill_hotkey", "Ctrl+Alt+X");
-  KillSwitch::install(killHotkey);
+    // ── Kill-switch ───────────────────────────────────────────────────────────
+    std::string killHotkey = cfg.value("kill_hotkey", "Ctrl+Alt+X");
+    KillSwitch::install(killHotkey);
 
-  // ── Audit log ─────────────────────────────────────────────────────────────
-  AuditLog auditLog{dataDir / "audit.log"};
+    // ── Audit log ─────────────────────────────────────────────────────────────
+    AuditLog auditLog{dataDir / "audit.log"};
 
-  auto permCfg = buildPermConfig(cfg);
-  permCfg.allowedPaths.push_back(exeDir.string());
-  if (std::filesystem::exists(dataDir)) {
-    permCfg.allowedPaths.push_back(dataDir.string());
-  }
+    auto permCfg = buildPermConfig(cfg);
+    permCfg.allowedPaths.push_back(exeDir.string());
+    if (std::filesystem::exists(dataDir)) {
+      permCfg.allowedPaths.push_back(dataDir.string());
+    }
 
-  auto siteProfilesDir = resolveAppPath(
-      exeDir, cfg.value("site_profiles_dir", "data/site_profiles"));
-  permCfg.allowedPaths.push_back(siteProfilesDir.string());
+    auto siteProfilesDir = resolveAppPath(
+        exeDir, cfg.value("site_profiles_dir", "data/site_profiles"));
+    permCfg.allowedPaths.push_back(siteProfilesDir.string());
 
-  auto luaToolsDir =
-      resolveAppPath(exeDir, cfg.value("lua_tools_dir", "data/tools"));
-  permCfg.allowedPaths.push_back(luaToolsDir.string());
+    auto luaToolsDir =
+        resolveAppPath(exeDir, cfg.value("lua_tools_dir", "data/tools"));
+    permCfg.allowedPaths.push_back(luaToolsDir.string());
 
-  // In MCP mode, disable interactive prompts — they would deadlock since
-  // stdin is controlled by the MCP bridge, not a human operator.
-  if (g_mcpMode) {
-    permCfg.confirmShellCommands = false;
-    permCfg.confirmFileDelete = false;
-    permCfg.confirmProcessKill = false;
-  }
-  PermissionSystem perms{permCfg};
+    // In MCP mode, disable interactive prompts — they would deadlock since
+    // stdin is controlled by the MCP bridge, not a human operator.
+    if (g_mcpMode) {
+      permCfg.confirmShellCommands = false;
+      permCfg.confirmFileDelete = false;
+      permCfg.confirmProcessKill = false;
+    }
+    PermissionSystem perms{permCfg};
 
-  // ── UIA debug mode (developer helper, bypasses agent) ────────────────────
-  if (argc > 1 && std::string_view(argv[1]) == "--debug-uia") {
-    WINBOT_INFO("Running in UI Automation Debug Mode");
+    // ── UIA debug mode (developer helper, bypasses agent) ────────────────────
+    if (args.size() > 1 && std::string_view(args.subspan(1).front()) == "--debug-uia") {
+      WINBOT_INFO("Running in UI Automation Debug Mode");
+      UIAutomationScanner uia;
+      UIADebugger debugger{uia};
+      debugger.run();
+      KillSwitch::uninstall();
+      return 0;
+    }
+
+    // ── Core services ─────────────────────────────────────────────────────────
     UIAutomationScanner uia;
-    UIADebugger debugger{uia};
-    debugger.run();
+    uia.setHumanMovement(cfg.value("human_movement", false));
+    SiteProfileRegistry siteProfiles{siteProfilesDir};
+
+    BrowserAutomation browser{cfg.value("browser_cdp_port", 9222),
+                              cfg.value("browser_exe", "")};
+
+    LuaRuntime luaRuntime{browser, uia, siteProfiles, &perms};
+
+    // ── Tool registry + dynamic Lua tools + built-in tools registration ───────
+    ToolRegistry tools;
+
+    LuaToolLoader luaToolLoader{luaToolsDir, luaRuntime, tools};
+    size_t loadedLuaCount = luaToolLoader.loadAll();
+    WINBOT_INFO("Loaded {} custom Lua tool(s) from {}", loadedLuaCount,
+                luaToolLoader.toolsDir().string());
+
+    BuiltinTools::registerAll(tools, {.uia = uia,
+                                      .browser = browser,
+                                      .perms = perms,
+                                      .siteProfiles = siteProfiles,
+                                      .luaRuntime = luaRuntime,
+                                      .luaToolLoader = &luaToolLoader});
+
+    if (g_mcpMode) {
+      // ── MCP mode: full JSON-RPC 2.0 / Model Context Protocol server ──────
+      McpServer mcpServer{
+          McpServer::Config{.serverName = "WinBot",
+                            .serverVersion = "0.2.0",
+                            .actionDelayMs = cfg.value("action_delay_ms", 200)},
+          tools};
+      auditLog.note("=== WinBot MCP session started ===");
+      mcpServer.run();
+    } else {
+      // ── Legacy mode: custom WinBot JSON protocol ─────────────────────────
+      ToolServer server{
+          ToolServer::Config{.actionDelayMs = cfg.value("action_delay_ms", 200)},
+          tools, auditLog};
+      auditLog.note("=== WinBot session started ===");
+      server.run(); // blocks until stdin closes or kill-switch fires
+    }
+    auditLog.note("=== WinBot session ended ===");
+
     KillSwitch::uninstall();
+    WINBOT_INFO("Goodbye.");
     return 0;
+  } catch (const std::exception &ex) {
+    (void)std::fputs("[ERROR ] Fatal error in main: ", stderr);
+    (void)std::fputs(ex.what(), stderr);
+    (void)std::fputs("\n", stderr);
+    return 1;
+  } catch (...) {
+    (void)std::fputs("[ERROR ] Unknown fatal error in main.\n", stderr);
+    return 1;
   }
-
-  // ── Core services ─────────────────────────────────────────────────────────
-  UIAutomationScanner uia;
-  uia.setHumanMovement(cfg.value("human_movement", false));
-  SiteProfileRegistry siteProfiles{siteProfilesDir};
-
-  BrowserAutomation browser{cfg.value("browser_cdp_port", 9222),
-                            cfg.value("browser_exe", "")};
-
-  LuaRuntime luaRuntime{browser, uia, siteProfiles, &perms};
-
-  // ── Tool registry + dynamic Lua tools + built-in tools registration ───────
-  ToolRegistry tools;
-
-  LuaToolLoader luaToolLoader{luaToolsDir, luaRuntime, tools};
-  size_t loadedLuaCount = luaToolLoader.loadAll();
-  WINBOT_INFO("Loaded {} custom Lua tool(s) from {}", loadedLuaCount,
-              luaToolLoader.toolsDir().string());
-
-  BuiltinTools::registerAll(tools, {.uia = uia,
-                                    .browser = browser,
-                                    .perms = perms,
-                                    .siteProfiles = siteProfiles,
-                                    .luaRuntime = luaRuntime,
-                                    .luaToolLoader = &luaToolLoader});
-
-  if (g_mcpMode) {
-    // ── MCP mode: full JSON-RPC 2.0 / Model Context Protocol server ──────
-    McpServer mcpServer{
-        McpServer::Config{.serverName = "WinBot",
-                          .serverVersion = "0.2.0",
-                          .actionDelayMs = cfg.value("action_delay_ms", 200)},
-        tools};
-    auditLog.note("=== WinBot MCP session started ===");
-    mcpServer.run();
-  } else {
-    // ── Legacy mode: custom WinBot JSON protocol ─────────────────────────
-    ToolServer server{
-        ToolServer::Config{.actionDelayMs = cfg.value("action_delay_ms", 200)},
-        tools, auditLog};
-    auditLog.note("=== WinBot session started ===");
-    server.run(); // blocks until stdin closes or kill-switch fires
-  }
-  auditLog.note("=== WinBot session ended ===");
-
-  KillSwitch::uninstall();
-  WINBOT_INFO("Goodbye.");
-  return 0;
 }

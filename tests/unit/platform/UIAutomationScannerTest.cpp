@@ -3,7 +3,7 @@
 #include "platform/uia/UIAutomationScanner.h"
 
 // Register the COM environment once for all tests in this process
-// NOLINTNEXTLINE(cert-err58-cpp,cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cert-err58-cpp,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-owning-memory)
 static ::testing::Environment* const s_comEnv = ::testing::AddGlobalTestEnvironment(new ComEnvironment());
 
 TEST(UIAutomationScannerTest, ExactNameMatch) {

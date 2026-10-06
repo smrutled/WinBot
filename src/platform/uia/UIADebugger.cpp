@@ -2,6 +2,7 @@
 #include "security/KillSwitch.h"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <iostream>
 #include <print>
@@ -29,11 +30,11 @@ std::string UIADebugger::stripQuotes(std::string s) {
   std::string unescaped;
   unescaped.reserve(s.size());
   for (size_t i = 0; i < s.size(); ++i) {
-    if (s[i] == '\\' && i + 1 < s.size() && s[i + 1] == '"') {
+    if (s.at(i) == '\\' && i + 1 < s.size() && s.at(i + 1) == '"') {
       unescaped += '"';
       ++i;
     } else {
-      unescaped += s[i];
+      unescaped += s.at(i);
     }
   }
   return unescaped;
@@ -52,8 +53,8 @@ UIADebugger::parseCommandArgs(std::string_view argStr) {
     std::string cur;
     bool inQuote = false;
     for (size_t i = 0; i < inner.size(); ++i) {
-      char c = inner[i];
-      if (c == '\\' && i + 1 < inner.size() && inner[i + 1] == '"') {
+      char c = inner.at(i);
+      if (c == '\\' && i + 1 < inner.size() && inner.at(i + 1) == '"') {
         cur += "\\\"";
         ++i;
         continue;
@@ -73,30 +74,26 @@ UIADebugger::parseCommandArgs(std::string_view argStr) {
 
   CommandArgs result;
   if (parts.size() == 1) {
-    result.name = parts[0];
+    result.name = parts.at(0);
   } else if (parts.size() == 2) {
     // (Name, Timeout) OR (Type, Name)
     // If the second part is numeric, it's a timeout.
-    bool isNumeric = !parts[1].empty() &&
-                     std::all_of(parts[1].begin(), parts[1].end(), ::isdigit);
+    bool isNumeric = !parts.at(1).empty() &&
+                     std::all_of(parts.at(1).begin(), parts.at(1).end(), ::isdigit);
     if (isNumeric) {
-      result.name = parts[0];
-      try {
-        result.timeoutMs = std::stoi(parts[1]);
-      } catch (...) {
-      }
+      result.name = parts.at(0);
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      std::from_chars(parts.at(1).data(), parts.at(1).data() + parts.at(1).size(), result.timeoutMs);
     } else {
-      result.type = parts[0];
-      result.name = parts[1];
+      result.type = parts.at(0);
+      result.name = parts.at(1);
     }
   } else if (parts.size() >= 3) {
     // (Type, Name, Timeout)
-    result.type = parts[0];
-    result.name = parts[1];
-    try {
-      result.timeoutMs = std::stoi(parts[2]);
-    } catch (...) {
-    }
+    result.type = parts.at(0);
+    result.name = parts.at(1);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    std::from_chars(parts.at(2).data(), parts.at(2).data() + parts.at(2).size(), result.timeoutMs);
   }
   return result;
 }
@@ -201,10 +198,8 @@ bool UIADebugger::dispatchOnHandle(UIHandle &h, std::string_view methodToken) {
     h.key(arg);
   } else if (method == "Wait") {
     int ms = 0;
-    try {
-      ms = std::stoi(arg);
-    } catch (...) {
-    }
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    std::from_chars(arg.data(), arg.data() + arg.size(), ms);
     emit("Waiting {}ms...\n", ms);
     h.wait(ms);
   } else if (method == "Select" || method == "WaitSelect") {
@@ -356,8 +351,8 @@ bool UIADebugger::execSegment(std::string_view seg) {
     int parenDepth = 0;
     bool hadDanglingDot = false;
     for (size_t i = 0; i < cmd.size(); ++i) {
-      char c = cmd[i];
-      if (c == '\\' && i + 1 < cmd.size() && cmd[i + 1] == '"') {
+      char c = cmd.at(i);
+      if (c == '\\' && i + 1 < cmd.size() && cmd.at(i + 1) == '"') {
         cur += "\\\"";
         ++i;
         continue;
@@ -391,7 +386,7 @@ bool UIADebugger::execSegment(std::string_view seg) {
     auto sPos = trimmed.find_first_not_of(" \t");
     if (sPos != std::string::npos) {
       tokens.push_back(trimmed.substr(sPos, trimmed.find_last_not_of(" \t") - sPos + 1));
-    } else if (!tokens.empty() && cmd.find_last_not_of(" \t") != std::string::npos && cmd[cmd.find_last_not_of(" \t")] == '.') {
+    } else if (!tokens.empty() && cmd.find_last_not_of(" \t") != std::string::npos && cmd.at(cmd.find_last_not_of(" \t")) == '.') {
       emitError("Syntax error: trailing dot in '{}'", cmd);
       return false;
     }
@@ -400,7 +395,7 @@ bool UIADebugger::execSegment(std::string_view seg) {
     return true;
 
   // ── Resolve the first token ───────────────────────────────────────────
-  std::string first = tokens[0];
+  std::string first = tokens.at(0);
   while (!first.empty() && first.back() == ' ')
     first.pop_back();
 
@@ -525,15 +520,15 @@ bool UIADebugger::execSegment(std::string_view seg) {
     return true;
   } else if (method == "Wait") {
     int ms = 0;
-    try {
-      ms = std::stoi(stripQuotes(arg));
-    } catch (...) {
-    }
+    auto stripped = stripQuotes(arg);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    std::from_chars(stripped.data(), stripped.data() + stripped.size(), ms);
     if (ms > 0) {
       std::this_thread::sleep_for(std::chrono::milliseconds(ms));
       emit("Waited {} ms\n", ms);
-    } else
+    } else {
       emit("Usage: Wait(ms)\n");
+    }
     return true;
   } else if (method == "Type") {
     auto text = stripQuotes(arg);
@@ -650,8 +645,10 @@ bool UIADebugger::execSegment(std::string_view seg) {
   // ── Click (global scope) ──────────────────────────────────────────────
   else if (method == "Click") {
     std::string clickArg = stripQuotes(arg);
-    int x = 0, y = 0;
-    if (!clickArg.empty() && sscanf_s(clickArg.c_str(), "%d %d", &x, &y) == 2) {
+    int x = 0;
+    int y = 0;
+    std::istringstream iss(clickArg);
+    if (!clickArg.empty() && (iss >> x >> y)) {
       auto res = UIHandle::clickAt(x, y);
       if (!res)
         emitError("Click failed: {}", res.error());
@@ -674,8 +671,9 @@ bool UIADebugger::execSegment(std::string_view seg) {
         } catch (const std::exception &e) {
           emitError("Click failed: {}", e.what());
         }
-      } else
+      } else {
         emitError("{}", res.error());
+      }
     } else {
       emit("Usage: Click(\"name\") or Click(x, y)\n");
     }
@@ -708,7 +706,7 @@ bool UIADebugger::execSegment(std::string_view seg) {
   // ── Execute dot-chain on the resolved handle ──────────────────────────
   if (handle.has_value()) {
     for (size_t i = 1; i < tokens.size(); ++i) {
-      if (!dispatchOnHandle(*handle, tokens[i]))
+      if (!dispatchOnHandle(*handle, tokens.at(i)))
         break;
     }
     m_lastResult = *handle;

@@ -12,29 +12,36 @@
 #include "Common.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <regex>
 #include <thread>
 
-// Convenience macro for safe COM release
-#define SAFE_RELEASE(p) do { if (p) { (p)->Release(); (p) = nullptr; } } while(0)
+template <typename T>
+static void safeRelease(void*& p) noexcept {
+    if (p != nullptr) {
+        static_cast<T*>(p)->Release();
+        p = nullptr;
+    }
+}
 
 UIAutomationScanner::UIAutomationScanner() {
     ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-    IUIAutomation* automation = nullptr;
+    void* rawAutomation = nullptr;
     HRESULT hr = ::CoCreateInstance(
         __uuidof(CUIAutomation),
         nullptr,
         CLSCTX_INPROC_SERVER,
         __uuidof(IUIAutomation),
-        reinterpret_cast<void**>(&automation)
+        &rawAutomation
     );
     if (FAILED(hr)) {
         WINBOT_ERROR("UIAutomationScanner: CoCreateInstance failed 0x{:08X}", static_cast<uint32_t>(hr));
         return;
     }
-    m_automation = automation;
+    m_automation = rawAutomation;
+    auto* automation = static_cast<IUIAutomation*>(rawAutomation);
 
     IUIAutomationTreeWalker* walker = nullptr;
     automation->get_RawViewWalker(&walker);
@@ -66,23 +73,23 @@ UIAutomationScanner::UIAutomationScanner() {
 }
 
 UIAutomationScanner::~UIAutomationScanner() {
-    SAFE_RELEASE(reinterpret_cast<IUIAutomationCacheRequest*&>(m_cacheRequest));
-    SAFE_RELEASE(reinterpret_cast<IUIAutomationCondition*&>(m_trueCondition));
-    SAFE_RELEASE(reinterpret_cast<IUIAutomationTreeWalker*&>(m_treeWalker));
-    SAFE_RELEASE(reinterpret_cast<IUIAutomation*&>(m_automation));
+    safeRelease<IUIAutomationCacheRequest>(m_cacheRequest);
+    safeRelease<IUIAutomationCondition>(m_trueCondition);
+    safeRelease<IUIAutomationTreeWalker>(m_treeWalker);
+    safeRelease<IUIAutomation>(m_automation);
     ::CoUninitialize();
 }
 
 std::expected<UIElement, std::string> UIAutomationScanner::scanFocusedWindow() const {
     if (!m_automation) return std::unexpected("UI Automation not initialized");
 
-    auto* automation = reinterpret_cast<IUIAutomation*>(m_automation);
+    auto* automation = static_cast<IUIAutomation*>(m_automation);
     IUIAutomationElement* focusedEl = nullptr;
     HRESULT hr = automation->GetFocusedElement(&focusedEl);
     if (FAILED(hr) || !focusedEl) return std::unexpected("No focused element");
 
     // Walk up to the root window to get context
-    auto* walker = reinterpret_cast<IUIAutomationTreeWalker*>(m_treeWalker);
+    auto* walker = static_cast<IUIAutomationTreeWalker*>(m_treeWalker);
     if (!walker) {
         focusedEl->Release();
         return std::unexpected("UI Automation TreeWalker not initialized");
@@ -92,7 +99,8 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanFocusedWindow() c
     HWND hwnd = nullptr;
 
     while (current) {
-        current->get_CurrentNativeWindowHandle((UIA_HWND*)&hwnd);
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        current->get_CurrentNativeWindowHandle(reinterpret_cast<UIA_HWND*>(&hwnd));
         if (hwnd) break;
 
         hr = walker->GetParentElement(current, &parent);
@@ -101,7 +109,7 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanFocusedWindow() c
         current = parent;
     }
 
-    auto* cacheReq = reinterpret_cast<IUIAutomationCacheRequest*>(m_cacheRequest);
+    auto* cacheReq = static_cast<IUIAutomationCacheRequest*>(m_cacheRequest);
     IUIAutomationElement* cachedEl = nullptr;
     if (cacheReq && SUCCEEDED(current->BuildUpdatedCache(cacheReq, &cachedEl)) && cachedEl) {
         if (current != focusedEl) current->Release();
@@ -132,15 +140,17 @@ static HWND findBestWindow(std::string_view query) {
             HWND found = nullptr;
             auto ctx_pair = std::make_pair(&re, &found);
             ::EnumWindows([](HWND h, LPARAM lp) -> BOOL {
+                // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
                 auto* ctx = reinterpret_cast<std::pair<std::wregex*, HWND*>*>(lp);
                 if (!::IsWindowVisible(h)) return TRUE;
-                wchar_t buf[512]{};
-                ::GetWindowTextW(h, buf, 512);
-                if (std::regex_search(std::wstring(buf), *ctx->first)) {
+                std::array<wchar_t, 512> buf{};
+                ::GetWindowTextW(h, buf.data(), static_cast<int>(buf.size()));
+                if (std::regex_search(std::wstring(buf.data()), *ctx->first)) {
                     *ctx->second = h;
                     return FALSE;
                 }
                 return TRUE;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
             }, reinterpret_cast<LPARAM>(&ctx_pair));
             return found;
         } catch (...) {
@@ -159,16 +169,17 @@ static HWND findBestWindow(std::string_view query) {
 
     auto ctx_scored = std::make_pair(&wqLow, &best);
     ::EnumWindows([](HWND h, LPARAM lp) -> BOOL {
+        // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
         auto* ctx = reinterpret_cast<std::pair<std::wstring*, Candidate*>*>(lp);
         const std::wstring& q = *ctx->first;
         Candidate& best       = *ctx->second;
 
         if (!::IsWindowVisible(h)) return TRUE;
-        wchar_t buf[512]{};
-        ::GetWindowTextW(h, buf, 512);
-        if (buf[0] == L'\0') return TRUE;
+        std::array<wchar_t, 512> buf{};
+        ::GetWindowTextW(h, buf.data(), static_cast<int>(buf.size()));
+        if (buf.front() == L'\0') return TRUE;
 
-        std::wstring title(buf);
+        std::wstring title(buf.data());
         std::wstring titleLow = title;
         to_lower_inplace(titleLow);
 
@@ -181,6 +192,7 @@ static HWND findBestWindow(std::string_view query) {
             best = { h, score };
         }
         return TRUE; // Keep scanning — we want the BEST, not just the first
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     }, reinterpret_cast<LPARAM>(&ctx_scored));
 
     return best.hwnd;
@@ -206,12 +218,12 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanWindow(
 
 std::expected<UIElement, std::string> UIAutomationScanner::scanWindowByHandle(HWND hwnd) const {
     if (!m_automation) return std::unexpected("UI Automation not initialized");
-    auto* automation = reinterpret_cast<IUIAutomation*>(m_automation);
+    auto* automation = static_cast<IUIAutomation*>(m_automation);
     IUIAutomationElement* el = nullptr;
     HRESULT hr = automation->ElementFromHandle(hwnd, &el);
     if (FAILED(hr) || !el) return std::unexpected("Could not get UIA element for window handle");
 
-    auto* cacheReq = reinterpret_cast<IUIAutomationCacheRequest*>(m_cacheRequest);
+    auto* cacheReq = static_cast<IUIAutomationCacheRequest*>(m_cacheRequest);
     IUIAutomationElement* cachedEl = nullptr;
     if (cacheReq && SUCCEEDED(el->BuildUpdatedCache(cacheReq, &cachedEl)) && cachedEl) {
         el->Release();
@@ -226,17 +238,18 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanWindowByHandle(HW
 std::expected<UIElement, std::string> UIAutomationScanner::scanDesktop() const {
     if (!m_automation) return std::unexpected("UI Automation not initialized");
 
-    auto* automation = reinterpret_cast<IUIAutomation*>(m_automation);
+    auto* automation = static_cast<IUIAutomation*>(m_automation);
     IUIAutomationElement* root = nullptr;
     HRESULT hr = automation->GetRootElement(&root);
     if (FAILED(hr) || !root) return std::unexpected("Could not get desktop root element");
 
-    auto* condition = reinterpret_cast<IUIAutomationCondition*>(m_trueCondition);
+    auto* condition = static_cast<IUIAutomationCondition*>(m_trueCondition);
 
     // Populate desktop root element metadata
     UIElement result;
-    HWND desktopHwnd = nullptr;
-    root->get_CurrentNativeWindowHandle((UIA_HWND*)&desktopHwnd);
+    UIA_HWND desktopUiaHwnd = nullptr;
+    root->get_CurrentNativeWindowHandle(&desktopUiaHwnd);
+    HWND desktopHwnd = static_cast<HWND>(desktopUiaHwnd);
     result.ownerHwnd = desktopHwnd;
 
     int rootPid = 0;
@@ -304,7 +317,7 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanDesktop() const {
 std::expected<void, std::string> UIAutomationScanner::invokeElement(const std::vector<int>& runtimeId) const {
     if (!m_automation) return std::unexpected("UI Automation not initialized");
     if (runtimeId.empty()) return std::unexpected("RuntimeId is empty");
-    auto* automation = reinterpret_cast<IUIAutomation*>(m_automation);
+    auto* automation = static_cast<IUIAutomation*>(m_automation);
 
     IUIAutomationElement* root = nullptr;
     if (FAILED(automation->GetRootElement(&root)) || !root) 
@@ -314,6 +327,7 @@ std::expected<void, std::string> UIAutomationScanner::invokeElement(const std::v
     IUIAutomationCondition* condition = nullptr;
     VARIANT varId;
     VariantInit(&varId);
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
     varId.vt = VT_ARRAY | VT_I4;
     SAFEARRAYBOUND bound{ static_cast<ULONG>(runtimeId.size()), 0 };
     varId.parray = SafeArrayCreate(VT_I4, 1, &bound);
@@ -322,9 +336,10 @@ std::expected<void, std::string> UIAutomationScanner::invokeElement(const std::v
         return std::unexpected("Failed to allocate SAFEARRAY for RuntimeId");
     }
     for (long i = 0; i < static_cast<long>(runtimeId.size()); ++i) {
-        int val = runtimeId[static_cast<size_t>(i)];
+        int val = runtimeId.at(static_cast<size_t>(i));
         SafeArrayPutElement(varId.parray, &i, &val);
     }
+    // NOLINTEND(cppcoreguidelines-pro-type-union-access)
 
     HRESULT hrCond = automation->CreatePropertyCondition(UIA_RuntimeIdPropertyId, varId, &condition);
     VariantClear(&varId);
@@ -359,7 +374,7 @@ std::expected<void, std::string> UIAutomationScanner::invokeElement(const std::v
 UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwnd) const {
     UIElement result;
     if (!elPtr) return result;
-    auto* el = reinterpret_cast<IUIAutomationElement*>(elPtr);
+    auto* el = static_cast<IUIAutomationElement*>(elPtr);
 
     // 1. Native Window Handle (prefer cached, fallback to current, fallback to ownerHwnd)
     HWND currentHwnd = nullptr;
@@ -367,7 +382,7 @@ UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwn
     if (FAILED(el->get_CachedNativeWindowHandle(&uiaHwnd)) || !uiaHwnd) {
         el->get_CurrentNativeWindowHandle(&uiaHwnd);
     }
-    if (uiaHwnd) currentHwnd = reinterpret_cast<HWND>(uiaHwnd);
+    if (uiaHwnd) currentHwnd = static_cast<HWND>(uiaHwnd);
     if (!currentHwnd) currentHwnd = ownerHwnd;
     result.ownerHwnd = currentHwnd;
 
@@ -406,11 +421,12 @@ UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwn
     // 6. RuntimeId
     SAFEARRAY* saId = nullptr;
     if (SUCCEEDED(el->GetRuntimeId(&saId)) && saId) {
-        long lb = 0, ub = -1;
+        long lb = 0;
+        long ub = -1;
         SafeArrayGetLBound(saId, 1, &lb);
         SafeArrayGetUBound(saId, 1, &ub);
         if (ub >= lb) {
-            result.runtimeId.reserve(static_cast<size_t>(ub - lb + 1));
+            result.runtimeId.reserve(static_cast<size_t>(ub - lb) + 1);
             for (long i = lb; i <= ub; ++i) {
                 int val = 0;
                 SafeArrayGetElement(saId, &i, &val);
@@ -422,9 +438,8 @@ UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwn
 
     // 7. Bounding rectangle
     RECT rect{};
-    if (SUCCEEDED(el->get_CachedBoundingRectangle(&rect))) {
-        result.bounds = rect;
-    } else if (SUCCEEDED(el->get_CurrentBoundingRectangle(&rect))) {
+    if (SUCCEEDED(el->get_CachedBoundingRectangle(&rect)) ||
+        SUCCEEDED(el->get_CurrentBoundingRectangle(&rect))) {
         result.bounds = rect;
     }
 
@@ -455,9 +470,11 @@ UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwn
     if (canInvoke) {
         VARIANT varInv;
         VariantInit(&varInv);
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
         if (SUCCEEDED(el->GetCachedPropertyValue(UIA_IsInvokePatternAvailablePropertyId, &varInv)) &&
             varInv.vt == VT_BOOL) {
             result.supportsInvoke = (varInv.boolVal == VARIANT_TRUE);
+        // NOLINTEND(cppcoreguidelines-pro-type-union-access)
         } else {
             IUnknown* pUnk = nullptr;
             if (SUCCEEDED(el->GetCurrentPattern(UIA_InvokePatternId, &pUnk)) && pUnk) {
@@ -473,10 +490,12 @@ UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwn
         VARIANT varText;
         VariantInit(&varText);
         bool hasTextPattern = true;
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
         if (SUCCEEDED(el->GetCachedPropertyValue(UIA_IsTextPatternAvailablePropertyId, &varText)) &&
             varText.vt == VT_BOOL) {
             hasTextPattern = (varText.boolVal == VARIANT_TRUE);
         }
+        // NOLINTEND(cppcoreguidelines-pro-type-union-access)
         VariantClear(&varText);
 
         if (hasTextPattern) {
@@ -508,10 +527,12 @@ UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwn
         VARIANT varVal;
         VariantInit(&varVal);
         bool hasValPattern = true;
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
         if (SUCCEEDED(el->GetCachedPropertyValue(UIA_IsValuePatternAvailablePropertyId, &varVal)) &&
             varVal.vt == VT_BOOL) {
             hasValPattern = (varVal.boolVal == VARIANT_TRUE);
         }
+        // NOLINTEND(cppcoreguidelines-pro-type-union-access)
         VariantClear(&varVal);
 
         if (hasValPattern) {
@@ -529,8 +550,8 @@ UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwn
 
     // 12. Recurse into children (max depth 32) using cached batching
     if (depth < 32) {
-        auto* cacheReq = reinterpret_cast<IUIAutomationCacheRequest*>(m_cacheRequest);
-        auto* condition = reinterpret_cast<IUIAutomationCondition*>(m_trueCondition);
+        auto* cacheReq = static_cast<IUIAutomationCacheRequest*>(m_cacheRequest);
+        auto* condition = static_cast<IUIAutomationCondition*>(m_trueCondition);
 
         IUIAutomationElementArray* childrenArray = nullptr;
         HRESULT hr = E_FAIL;
@@ -558,7 +579,7 @@ UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwn
     return result;
 }
 
-std::string UIAutomationScanner::controlTypeToString(long id) noexcept {
+std::string_view UIAutomationScanner::controlTypeToString(long id) noexcept {
     switch (id) {
         case UIA_ButtonControlTypeId:       return "Button";
         case UIA_CalendarControlTypeId:     return "Calendar";
@@ -846,7 +867,7 @@ std::expected<UIHandle, std::string> UIAutomationScanner::waitForWindow(
     auto deadline = std::chrono::steady_clock::now() +
                     std::chrono::milliseconds(timeoutMs);
 
-    do {
+    while (true) {
         auto tree = scanWindow(title);
         // Only return if we found the window AND it has a name (or we're out of time)
         bool outOfTime = std::chrono::steady_clock::now() > (deadline - std::chrono::milliseconds(500));
@@ -856,7 +877,7 @@ std::expected<UIHandle, std::string> UIAutomationScanner::waitForWindow(
         
         if (std::chrono::steady_clock::now() >= deadline) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    } while (std::chrono::steady_clock::now() < deadline);
+    }
     
     return std::unexpected(
         std::format("waitForWindow('{}') — timed out after {} ms", title, timeoutMs));

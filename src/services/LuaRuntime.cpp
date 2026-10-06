@@ -28,7 +28,8 @@ struct HookContext {
 
 thread_local HookContext* t_currentHookCtx = nullptr;
 
-static void luaHookCallback(lua_State* L, lua_Debug* /*ar*/) {
+// NOLINTBEGIN(cppcoreguidelines-pro-type-vararg) - luaL_error is standard Lua C-API
+void luaHookCallback(lua_State* L, lua_Debug* /*ar*/) {
     if (KillSwitch::isTriggered()) {
         luaL_error(L, "Script execution aborted: KillSwitch triggered");
     }
@@ -47,6 +48,7 @@ static void luaHookCallback(lua_State* L, lua_Debug* /*ar*/) {
         }
     }
 }
+// NOLINTEND(cppcoreguidelines-pro-type-vararg)
 
 class ScopedLuaHook {
 public:
@@ -180,6 +182,7 @@ static json luaValueToJson(lua_State* L, int idx) {
                         key = std::to_string(lua_tointeger(L, -2));
                     }
                     if (!key.empty()) {
+                        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access) - nlohmann::json object key insertion
                         obj[key] = luaValueToJson(L, -1);
                     }
                     lua_pop(L, 1);
@@ -193,9 +196,7 @@ static json luaValueToJson(lua_State* L, int idx) {
 }
 
 static void pushJsonValue(lua_State* L, const json& j) {
-    if (j.is_null()) {
-        lua_pushnil(L);
-    } else if (j.is_boolean()) {
+    if (j.is_boolean()) {
         lua_pushboolean(L, j.get<bool>());
     } else if (j.is_number_integer()) {
         lua_pushinteger(L, j.get<lua_Integer>());
@@ -206,9 +207,10 @@ static void pushJsonValue(lua_State* L, const json& j) {
         lua_pushlstring(L, s.data(), s.size());
     } else if (j.is_array()) {
         lua_createtable(L, static_cast<int>(j.size()), 0);
-        for (size_t i = 0; i < j.size(); ++i) {
-            pushJsonValue(L, j[i]);
-            lua_seti(L, -2, static_cast<lua_Integer>(i + 1));
+        lua_Integer idx = 1;
+        for (const auto& elem : j) {
+            pushJsonValue(L, elem);
+            lua_seti(L, -2, idx++);
         }
     } else if (j.is_object()) {
         lua_createtable(L, 0, static_cast<int>(j.size()));

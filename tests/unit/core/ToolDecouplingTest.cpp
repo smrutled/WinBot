@@ -102,7 +102,7 @@ TEST(ToolDecouplingTest, BuiltinToolsRegisterAllPopulatesRegistry) {
     ASSERT_TRUE(listResult.has_value());
     json parsedList = json::parse(*listResult);
     EXPECT_TRUE(parsedList.is_array());
-    EXPECT_GT(parsedList.size(), 20u);
+    EXPECT_GT(parsedList.size(), 20U);
 
     std::filesystem::remove_all(tempDir);
 }

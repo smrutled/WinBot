@@ -103,11 +103,11 @@ public:
 
   // Serialize a UI element tree into a compact human-readable text block
   // suitable for inclusion in an LLM prompt.
-  [[nodiscard]] static std::string serialize(const UIElement &root,
+  [[nodiscard]] static std::string serialize(const UIElement &el,
                                              int indent = 0);
 
   // Count the number of interactive elements in a tree.
-  [[nodiscard]] static int countInteractive(const UIElement &root);
+  [[nodiscard]] static int countInteractive(const UIElement &el);
 
   // Find the center point of the first element matching a name substring.
   [[nodiscard]] static std::optional<POINT>
@@ -138,11 +138,11 @@ private:
   void *m_cacheRequest{nullptr};  // IUIAutomationCacheRequest*
 
   // Recursively walk the UIA tree from a given element
-  [[nodiscard]] UIElement walkElement(void *element, int depth = 0,
+  [[nodiscard]] UIElement walkElement(void *elPtr, int depth = 0,
                                       HWND ownerHwnd = nullptr) const;
 
   // Convert UIA ControlType ID to human-readable string
-  [[nodiscard]] static std::string
+  [[nodiscard]] static std::string_view
   controlTypeToString(long controlTypeId) noexcept;
 };
 

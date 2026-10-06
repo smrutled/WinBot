@@ -24,8 +24,8 @@ void SiteProfileRegistry::reload() {
 
                 SiteProfile profile;
                 profile.urlMatch = j.value("url_match", "");
-                if (j.contains("extract_items") && j["extract_items"].is_array()) {
-                    for (const auto& itemJ : j["extract_items"]) {
+                if (j.contains("extract_items") && j.at("extract_items").is_array()) {
+                    for (const auto& itemJ : j.at("extract_items")) {
                         SiteProfileItem item;
                         item.name = itemJ.value("name", "");
                         item.selector = itemJ.value("selector", "");

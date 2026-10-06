@@ -1,7 +1,6 @@
 #pragma once
 
 #include "platform/uia/UIAutomationScanner.h"
-#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <gtest/gtest.h>
@@ -16,24 +15,18 @@
 // repository root directory using the WINBOT_ROOT environment variable, with a
 // compile-time fallback to WINBOT_SOURCE_DIR if not set.
 inline std::filesystem::path getProjectRoot() {
-#if defined(_MSC_VER)
-  char *buf = nullptr;
-  size_t sz = 0;
-  if (_dupenv_s(&buf, &sz, "WINBOT_ROOT") == 0 && buf != nullptr) {
-    std::filesystem::path p(buf);
-    free(buf);
-    if (!p.empty())
-      return p;
+  DWORD len = ::GetEnvironmentVariableA("WINBOT_ROOT", nullptr, 0);
+  if (len > 1) {
+    std::string envVal(len, '\0');
+    DWORD written = ::GetEnvironmentVariableA("WINBOT_ROOT", envVal.data(), len);
+    if (written > 0) {
+      envVal.resize(written);
+      return {envVal};
+    }
   }
-#else
-  if (const char *env = std::getenv("WINBOT_ROOT")) {
-    if (*env != '\0')
-      return std::filesystem::path(env);
-  }
-#endif
 
 #ifdef WINBOT_SOURCE_DIR
-  return std::filesystem::path(WINBOT_SOURCE_DIR);
+  return {WINBOT_SOURCE_DIR};
 #else
   return std::filesystem::current_path();
 #endif
@@ -45,23 +38,11 @@ class ComEnvironment : public ::testing::Environment {
 public:
   void SetUp() override {
     // Initialize WINBOT_ROOT environment variable if not already set
-#if defined(_MSC_VER)
-    char *buf = nullptr;
-    size_t sz = 0;
-    if (_dupenv_s(&buf, &sz, "WINBOT_ROOT") == 0 && buf != nullptr) {
-      free(buf);
-    } else {
+    if (::GetEnvironmentVariableA("WINBOT_ROOT", nullptr, 0) == 0) {
 #ifdef WINBOT_SOURCE_DIR
       _putenv_s("WINBOT_ROOT", WINBOT_SOURCE_DIR);
 #endif
     }
-#else
-    if (!std::getenv("WINBOT_ROOT")) {
-#ifdef WINBOT_SOURCE_DIR
-      setenv("WINBOT_ROOT", WINBOT_SOURCE_DIR, 0);
-#endif
-    }
-#endif
 
     HRESULT hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     // RPC_E_CHANGED_MODE (0x80010106) is acceptable if already initialized in
@@ -178,7 +159,7 @@ inline UIElement createDesktopWithSiblings(DWORD calcPid = 1234,
 
 // Builds a deeply nested tree to test recursion and stack safety
 inline UIElement createDeepTree(int depth,
-                                std::string leafName = "TargetLeaf") {
+                                const std::string &leafName = "TargetLeaf") {
   UIElement root = createMockElement("DeepRoot", "Window", "Root",
                                      {0, 0, 500, 500}, true, true, {1});
   UIElement *current = &root;
@@ -195,8 +176,6 @@ inline UIElement createDeepTree(int depth,
   }
   return root;
 }
-
-#include <functional>
 
 // Builds a wide and structured tree with N total nodes grouped into panels
 inline UIElement createLargeTree(int totalNodes) {
@@ -226,9 +205,12 @@ inline UIElement createLargeTree(int totalNodes) {
     for (int i = 0; i < itemsInThisGroup; ++i) {
       ++created;
       std::vector<int> itemRId = {1, g + 1, i + 1};
-      std::string type = (created % 3 == 0)
-                             ? "Button"
-                             : ((created % 3 == 1) ? "Edit" : "Text");
+      const char *type = "Text";
+      if (created % 3 == 0) {
+        type = "Button";
+      } else if (created % 3 == 1) {
+        type = "Edit";
+      }
       std::string name = std::format("Element_{}", created);
       group.children.push_back(
           createMockElement(name, type, std::format("autoId_{}", created),
