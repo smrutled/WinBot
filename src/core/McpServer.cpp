@@ -81,12 +81,35 @@ static bool readLineStdin(std::string& line) {
         if (hStdin == nullptr || hStdin == INVALID_HANDLE_VALUE) {
             break; // fall back to blocking read
         }
-        DWORD wr = ::WaitForSingleObject(hStdin, 250);
-        if (wr == WAIT_OBJECT_0) {
-            break;    // input available (or pipe closed)
-        }
-        if (wr != WAIT_TIMEOUT) {
-            return false;
+
+        DWORD fileType = ::GetFileType(hStdin);
+        if (fileType == FILE_TYPE_PIPE) {
+            DWORD avail = 0;
+            if (::PeekNamedPipe(hStdin, nullptr, 0, nullptr, &avail, nullptr)) {
+                if (avail > 0) {
+                    break; // input is ready in the pipe
+                }
+                // Pipe is open but no data yet: sleep briefly to allow kill-switch checks
+                ::Sleep(20);
+                continue;
+            } else {
+                DWORD err = ::GetLastError();
+                if (err == ERROR_BROKEN_PIPE || err == ERROR_PIPE_NOT_CONNECTED || err == ERROR_NO_DATA) {
+                    return false; // pipe closed by writer
+                }
+                break; // other error, fall back to blocking read
+            }
+        } else if (fileType == FILE_TYPE_CHAR) {
+            DWORD wr = ::WaitForSingleObject(hStdin, 250);
+            if (wr == WAIT_OBJECT_0) {
+                break;    // input available (or console closed)
+            }
+            if (wr != WAIT_TIMEOUT) {
+                return false;
+            }
+        } else {
+            // Disk file or unknown device: proceed to read
+            break;
         }
     }
     try {
