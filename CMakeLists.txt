@@ -252,6 +252,13 @@ add_custom_command(TARGET WinBot POST_BUILD
         "$<TARGET_FILE_DIR:WinBot>/data"
 )
 
+if(WIN32)
+    add_custom_command(TARGET WinBot PRE_LINK
+        COMMAND ${CMAKE_COMMAND} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/kill_winbot.cmake"
+        COMMENT "Terminating any running WinBot processes..."
+    )
+endif()
+
 # ── Tests & Benchmarks ────────────────────────────────────────────────────────
 option(BUILD_TESTING "Build the testing tree." ON)
 if(BUILD_TESTING)
