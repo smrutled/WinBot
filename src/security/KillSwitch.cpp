@@ -1,4 +1,5 @@
 #include "security/KillSwitch.h"
+#include "Common.h"
 #include <cctype>
 
 void KillSwitch::install(std::string_view hotkey) {

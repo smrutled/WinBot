@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include "platform/screen/ScreenCapture.h"
+#include <algorithm>
+#include <array>
 
 namespace {
 
@@ -13,11 +15,8 @@ TEST(ScreenCaptureTest, CaptureRegionValid) {
     EXPECT_FALSE(result->pngBytes.empty());
 
     // Verify PNG magic header: 0x89 'P' 'N' 'G'
-    ASSERT_GE(result->pngBytes.size(), 4U);
-    EXPECT_EQ(result->pngBytes[0], 0x89);
-    EXPECT_EQ(result->pngBytes[1], 'P');
-    EXPECT_EQ(result->pngBytes[2], 'N');
-    EXPECT_EQ(result->pngBytes[3], 'G');
+    constexpr auto pngMagic = std::to_array<uint8_t>({0x89, 'P', 'N', 'G'});
+    EXPECT_TRUE(std::ranges::starts_with(result->pngBytes, pngMagic));
 }
 
 TEST(ScreenCaptureTest, CaptureRegionRejectsZeroOrInvertedDimensions) {

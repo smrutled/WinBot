@@ -1,8 +1,12 @@
 #ifndef WINBOT_KILLSWITCH_H
 #define WINBOT_KILLSWITCH_H
-#include "Common.h"
-#include <string_view>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
 
+#include <atomic>
+#include <string_view>
 #include <thread>
 
 // ── KillSwitch ───────────────────────────────────────────────────────────────
