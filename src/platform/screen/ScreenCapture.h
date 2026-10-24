@@ -4,6 +4,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <cstdint>
 #include <expected>
 #include <span>
 #include <string>
@@ -48,9 +49,9 @@ public:
     [[nodiscard]] static std::string toBase64(std::span<const uint8_t> data);
 
 private:
-    // Encode a raw BGRA DIB to PNG bytes using stb_image_write
+    // Encode a raw RGBA buffer to PNG bytes using stb_image_write
     [[nodiscard]] static std::expected<std::vector<uint8_t>, std::string> encodePng(
-        std::span<const uint8_t> bgra, int width, int height);
+        std::span<const uint32_t> rgba, int width, int height);
 
     // Capture given an HDC source and target region
     [[nodiscard]] static std::expected<CaptureResult, std::string> captureHdc(

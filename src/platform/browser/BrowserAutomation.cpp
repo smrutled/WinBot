@@ -191,31 +191,50 @@ bool BrowserAutomation::wsSend(std::string_view message) {
     return true;
 }
 
-std::expected<std::string, std::string> BrowserAutomation::wsReceive(int /*timeoutMs*/) {
+std::expected<std::string, std::string> BrowserAutomation::wsReceive(int timeoutMs) {
     if (m_wsHandle == nullptr) {
         return std::unexpected("Not connected");
     }
 
-    std::string response;
-    response.resize(65536);
-    DWORD bytesRead = 0;
-    WINHTTP_WEB_SOCKET_BUFFER_TYPE bufType{};
+    if (timeoutMs > 0) {
+        auto timeout = static_cast<DWORD>(timeoutMs);
+        ::WinHttpSetOption(static_cast<HINTERNET>(m_wsHandle), WINHTTP_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+    }
 
-    DWORD err = ::WinHttpWebSocketReceive(
-        static_cast<HINTERNET>(m_wsHandle),
-        response.data(),
-        static_cast<DWORD>(response.size()),
-        &bytesRead,
-        &bufType
-    );
-    if (err != ERROR_SUCCESS) {
-        m_connected = false;
-        return std::unexpected(std::format("wsReceive error: {}", err));
+    std::string response;
+    std::vector<char> buffer(65536);
+
+    while (true) {
+        DWORD bytesRead = 0;
+        WINHTTP_WEB_SOCKET_BUFFER_TYPE bufType{};
+
+        DWORD err = ::WinHttpWebSocketReceive(
+            static_cast<HINTERNET>(m_wsHandle),
+            buffer.data(),
+            static_cast<DWORD>(buffer.size()),
+            &bytesRead,
+            &bufType
+        );
+        if (err != ERROR_SUCCESS) {
+            m_connected = false;
+            return std::unexpected(std::format("wsReceive error: {}", err));
+        }
+
+        if (bufType == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) {
+            m_connected = false;
+            return std::unexpected("WebSocket closed by remote peer");
+        }
+
+        if (bytesRead > 0) {
+            response.append(buffer.data(), bytesRead);
+        }
+
+        if (bufType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE ||
+            bufType == WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE) {
+            break;
+        }
     }
-    if (bytesRead > response.size()) {
-        bytesRead = static_cast<DWORD>(response.size());
-    }
-    response.resize(bytesRead);
+
     return response;
 }
 
@@ -243,7 +262,13 @@ std::expected<json, std::string> BrowserAutomation::sendCdpCommand(
             return std::unexpected("CDP timeout");
         }
 
-        auto raw = wsReceive();
+        int remainingMs = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::seconds(10) - elapsed).count());
+        if (remainingMs <= 0) {
+            return std::unexpected("CDP timeout");
+        }
+
+        auto raw = wsReceive(remainingMs);
         if (!raw) {
             return std::unexpected(raw.error());
         }

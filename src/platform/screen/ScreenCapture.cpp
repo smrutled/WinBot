@@ -11,6 +11,7 @@
 #endif
 #include <dwmapi.h>
 #include <algorithm>
+#include <bit>
 
 #include "platform/screen/ScreenCapture.h"
 #include "Common.h"
@@ -28,28 +29,17 @@ static void pngWriteCallback(void* ctx, void* data, int size) {
 
 // ──────────────────────────────────────────────────────────────────────────────
 std::expected<std::vector<uint8_t>, std::string>
-ScreenCapture::encodePng(std::span<const uint8_t> bgra, int width, int height) {
+ScreenCapture::encodePng(std::span<const uint32_t> rgba, int width, int height) {
     if (width <= 0 || height <= 0) {
         return std::unexpected("Invalid image dimensions");
     }
-    size_t expectedBytes = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
-    if (bgra.size() < expectedBytes) {
+    size_t expectedPixels = static_cast<size_t>(width) * static_cast<size_t>(height);
+    if (rgba.size() < expectedPixels) {
         return std::unexpected("Buffer too small for image dimensions");
     }
 
-    // Convert BGRA → RGBA (stb expects RGBA)
-    std::vector<uint8_t> rgba(expectedBytes);
-    for (size_t i = 0; i + 3 < expectedBytes; i += 4) {
-        // NOLINTBEGIN(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
-        rgba[i + 0] = bgra[i + 2]; // R
-        rgba[i + 1] = bgra[i + 1]; // G
-        rgba[i + 2] = bgra[i + 0]; // B
-        rgba[i + 3] = bgra[i + 3]; // A
-        // NOLINTEND(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
-    }
-
     std::vector<uint8_t> pngBytes;
-    pngBytes.reserve(static_cast<size_t>(width) * static_cast<size_t>(height));
+    pngBytes.reserve(expectedPixels);
 
     int ok = stbi_write_png_to_func(
         pngWriteCallback, &pngBytes,
@@ -96,13 +86,19 @@ ScreenCapture::captureHdc(HDC srcDc, int x, int y, int w, int h) {
     bi.bmiHeader.biBitCount    = 32;
     bi.bmiHeader.biCompression = BI_RGB;
 
-    std::vector<uint8_t> pixels(static_cast<size_t>(w * h * 4));
+    size_t pixelCount = static_cast<size_t>(w) * static_cast<size_t>(h);
+    std::vector<uint32_t> pixels(pixelCount);
     ::GetDIBits(memDc, bmp, 0, h, pixels.data(),
         &bi, DIB_RGB_COLORS);
 
     ::SelectObject(memDc, old);
     ::DeleteObject(bmp);
     ::DeleteDC(memDc);
+
+    // Swizzle BGRA -> RGBA in place
+    for (auto& p : pixels) {
+        p = (p & 0xFF00FF00U) | std::rotl(p & 0x00FF00FFU, 16);
+    }
 
     auto pngResult = encodePng(pixels, w, h);
     if (!pngResult) {
@@ -133,33 +129,13 @@ ScreenCapture::captureDesktop() {
 #define PW_RENDERFULLCONTENT 0x00000002
 #endif
 
-static bool isAllBlank(std::span<const uint8_t> bgra, int width, int height) {
-    if (bgra.empty() || width <= 0 || height <= 0) {
+static bool isAllBlank(std::span<const uint32_t> pixels) {
+    if (pixels.empty()) {
         return true;
     }
-    size_t count = static_cast<size_t>(width) * static_cast<size_t>(height);
-    size_t maxElements = bgra.size() / sizeof(uint32_t);
-    count = (std::min)(count, maxElements);
-    if (count == 0) {
-        return true;
-    }
-
-    size_t step = (count / 500 > 1) ? (count / 500) : 1;
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
-    for (size_t i = 0; i < count; i += step) {
-        size_t idx = i * 4;
-        if (bgra[idx] != 0 || bgra[idx + 1] != 0 || bgra[idx + 2] != 0) {
-            return false;
-        }
-    }
-    for (size_t i = 0; i < count; ++i) {
-        size_t idx = i * 4;
-        if (bgra[idx] != 0 || bgra[idx + 1] != 0 || bgra[idx + 2] != 0) {
-            return false;
-        }
-    }
-    // NOLINTEND(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
-    return true;
+    return std::ranges::none_of(pixels, [](uint32_t p) {
+        return (p & 0x00FFFFFFU) != 0;
+    });
 }
 
 std::expected<ScreenCapture::CaptureResult, std::string>
@@ -240,7 +216,8 @@ ScreenCapture::captureWindowOffscreen(HWND hwnd) {
     bi.bmiHeader.biBitCount = 32;
     bi.bmiHeader.biCompression = BI_RGB;
 
-    std::vector<uint8_t> pixels(static_cast<size_t>(finalW * finalH * 4));
+    size_t pixelCount = static_cast<size_t>(finalW) * static_cast<size_t>(finalH);
+    std::vector<uint32_t> pixels(pixelCount);
     HBITMAP activeBmp = (cropBmp != nullptr ? cropBmp : bmp);
     ::GetDIBits(captureDc, activeBmp, 0, finalH, pixels.data(),
                 &bi, DIB_RGB_COLORS);
@@ -255,8 +232,13 @@ ScreenCapture::captureWindowOffscreen(HWND hwnd) {
     ::DeleteDC(memDc);
     ::ReleaseDC(nullptr, screenDc);
 
-    if (pwOk == 0 || isAllBlank(pixels, finalW, finalH)) {
+    if (pwOk == 0 || isAllBlank(pixels)) {
         return std::unexpected("Offscreen render failed or produced empty image");
+    }
+
+    // Swizzle BGRA -> RGBA in place
+    for (auto& p : pixels) {
+        p = (p & 0xFF00FF00U) | std::rotl(p & 0x00FF00FFU, 16);
     }
 
     auto pngResult = encodePng(pixels, finalW, finalH);
@@ -441,22 +423,38 @@ ScreenCapture::scale(const CaptureResult& src, int maxDim) {
 std::string ScreenCapture::toBase64(std::span<const uint8_t> data) {
     static constexpr std::string_view b64 =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string encoded;
-    encoded.reserve(((data.size() + 2) / 3) * 4);
-    for (size_t i = 0; i < data.size(); i += 3) {
-        // NOLINTBEGIN(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
-        uint32_t n = static_cast<uint32_t>(data[i]) << 16;
-        if (i + 1 < data.size()) {
-            n |= static_cast<uint32_t>(data[i + 1]) << 8;
-        }
-        if (i + 2 < data.size()) {
-            n |= static_cast<uint32_t>(data[i + 2]);
-        }
-        // NOLINTEND(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
-        encoded += b64.at((n >> 18) & 0x3F);
-        encoded += b64.at((n >> 12) & 0x3F);
-        encoded += (i + 1 < data.size()) ? b64.at((n >> 6) & 0x3F) : '=';
-        encoded += (i + 2 < data.size()) ? b64.at(n & 0x3F) : '=';
+    if (data.empty()) {
+        return {};
     }
+    size_t outLen = ((data.size() + 2) / 3) * 4;
+    std::string encoded(outLen, '=');
+    size_t outIdx = 0;
+    size_t inIdx = 0;
+
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
+    while (inIdx + 3 <= data.size()) {
+        uint32_t n = (static_cast<uint32_t>(data[inIdx]) << 16) |
+                     (static_cast<uint32_t>(data[inIdx + 1]) << 8) |
+                     static_cast<uint32_t>(data[inIdx + 2]);
+        encoded[outIdx++] = b64[(n >> 18) & 0x3F];
+        encoded[outIdx++] = b64[(n >> 12) & 0x3F];
+        encoded[outIdx++] = b64[(n >> 6) & 0x3F];
+        encoded[outIdx++] = b64[n & 0x3F];
+        inIdx += 3;
+    }
+
+    if (inIdx < data.size()) {
+        uint32_t n = static_cast<uint32_t>(data[inIdx]) << 16;
+        bool hasSecond = (inIdx + 1 < data.size());
+        if (hasSecond) {
+            n |= static_cast<uint32_t>(data[inIdx + 1]) << 8;
+        }
+        encoded[outIdx++] = b64[(n >> 18) & 0x3F];
+        encoded[outIdx++] = b64[(n >> 12) & 0x3F];
+        if (hasSecond) {
+            encoded[outIdx++] = b64[(n >> 6) & 0x3F];
+        }
+    }
+    // NOLINTEND(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
     return encoded;
 }
