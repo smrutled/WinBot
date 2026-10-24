@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "tools/ShellTools.h"
+#include "tools/WindowTools.h"
 
 namespace {
 
@@ -39,4 +40,12 @@ TEST(ShellToolsTest, RunCommandCancellationTerminatesProcess) {
     EXPECT_LT(elapsed, std::chrono::milliseconds(3000));
 }
 
+TEST(WindowToolsTest, KillProcessRejectsPartialNumericString) {
+    // "4x" must not partially parse as PID 4; it should be treated as process name "4x"
+    auto result = tools::killProcess("4x");
+    ASSERT_FALSE(result.has_value());
+    EXPECT_TRUE(result.error().contains("Process '4x' not found"));
+}
+
 } // namespace
+

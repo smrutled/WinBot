@@ -1,5 +1,6 @@
 #include "tools/WindowTools.h"
 #include <array>
+#include <charconv>
 #include <tlhelp32.h>
 #include <psapi.h>
 #include <pdh.h>
@@ -173,9 +174,13 @@ ToolResult getProcesses() {
 
 ToolResult killProcess(std::string_view nameOrPid) {
     DWORD pid = 0;
-    // Try as PID first
-    try { pid = static_cast<DWORD>(std::stoul(std::string(nameOrPid))); }
-    catch (...) {
+    // Try as strict numeric PID first
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    auto [pEnd, ec] = std::from_chars(nameOrPid.data(), nameOrPid.data() + nameOrPid.size(), pid);
+    bool isNumericPid = (ec == std::errc{} && pEnd == nameOrPid.data() + nameOrPid.size());
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    if (!isNumericPid) {
+        pid = 0;
         // Search by name
         HANDLE snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (snap != INVALID_HANDLE_VALUE) {

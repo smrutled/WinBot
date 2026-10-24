@@ -1,4 +1,5 @@
 #include "security/PermissionSystem.h"
+#include <charconv>
 #include <iostream>
 #include <print>
 #include <algorithm>
@@ -191,17 +192,10 @@ ToolResult PermissionSystem::checkProcess(std::string_view name) const {
 
     // Check if numeric PID
     DWORD pid = 0;
-    bool isPid = false;
-    try {
-        size_t idx = 0;
-        unsigned long val = std::stoul(std::string(name), &idx);
-        if (idx == name.size()) {
-            pid = static_cast<DWORD>(val);
-            isPid = true;
-        }
-    } catch (const std::exception&) {
-        isPid = false;
-    }
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    auto [pEnd, ec] = std::from_chars(name.data(), name.data() + name.size(), pid);
+    bool isPid = (ec == std::errc{} && pEnd == name.data() + name.size());
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
     // Special case for critical Windows kernel PIDs
     if (isPid && (pid == 0 || pid == 4)) {

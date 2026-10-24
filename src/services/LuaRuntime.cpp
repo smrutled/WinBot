@@ -965,7 +965,7 @@ void LuaRuntime::bindWinBotAPI() {
                     if (profile != nullptr) {
                         std::string js = "(() => { let out = {};\n";
                         for (const auto& item : profile->items) {
-                            js += std::format("try {{\n  let els = document.querySelectorAll('{}');\n", item.selector);
+                            js += std::format("try {{\n  let els = document.querySelectorAll({});\n", json(item.selector).dump());
                             js += std::format("  if (els.length > 0) {{\n");
                             std::string extJs;
                             if (item.extract == "text") {
@@ -973,13 +973,13 @@ void LuaRuntime::bindWinBotAPI() {
                             } else if (item.extract == "html") {
                                 extJs = "e.innerHTML";
                             } else {
-                                extJs = std::format("e.getAttribute('{}')", item.extract);
+                                extJs = std::format("e.getAttribute({})", json(item.extract).dump());
                             }
                             
                             if (item.isArray) {
-                                js += std::format("    out['{}'] = Array.from(els).map(e => {}).filter(x => x);\n", item.name, extJs);
+                                js += std::format("    out[{}] = Array.from(els).map(e => {}).filter(x => x);\n", json(item.name).dump(), extJs);
                             } else {
-                                js += std::format("    out['{}'] = (e => {}) (els[0]);\n", item.name, extJs);
+                                js += std::format("    out[{}] = (e => {}) (els[0]);\n", json(item.name).dump(), extJs);
                             }
                             js += "  }\n} catch(e){}\n";
                         }

@@ -299,8 +299,9 @@ ToolResult keyPress(std::string_view combo) {
 
 ToolResult typeText(std::string_view text) {
     std::scoped_lock lock(s_inputMutex);
+    std::wstring wide = utf8_to_wide(text);
     // Type each character using KEYEVENTF_UNICODE for full Unicode support
-    for (char32_t c : text) {
+    for (wchar_t c : wide) {
         std::array<INPUT, 2> inputs{};
         auto& [keyDown, keyUp] = inputs; // fixed size: bounds verified at compile time
         // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
@@ -313,7 +314,7 @@ ToolResult typeText(std::string_view text) {
         ::SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
         ::Sleep(5); // Small delay between characters for reliability
     }
-    return ok(std::format("Typed {} characters", text.size()));
+    return ok(std::format("Typed {} characters", wide.size()));
 }
 
 } // namespace tools

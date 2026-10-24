@@ -292,17 +292,18 @@ ToolResult BrowserAutomation::evalJs(std::string_view js) {
 }
 
 ToolResult BrowserAutomation::clickSelector(std::string_view selector) {
+    std::string selJson = json(selector).dump();
     // Attempt to trace human mouse movement if element has bounding box
     std::string posJs = std::format(
         "(() => {{"
-        "  let el = document.querySelector('{}');"
+        "  let el = document.querySelector({});"
         "  if (!el) return 'null';"
         "  let rect = el.getBoundingClientRect();"
         "  return JSON.stringify({{"
         "    x: Math.round(window.screenX + rect.left + rect.width/2),"
         "    y: Math.round(window.screenY + (window.outerHeight - window.innerHeight) + rect.top + rect.height/2)"
         "  }});"
-        "}})()", selector);
+        "}})()", selJson);
     
     if (auto res = evalJs(posJs); res && *res != "null" && !res->empty()) {
         try {
@@ -325,16 +326,16 @@ ToolResult BrowserAutomation::clickSelector(std::string_view selector) {
 
     // Always dispatch the actual click via JS to guarantee execution even if browser is in background
     std::string js = std::format(
-        "(() => {{ let el = document.querySelector('{}'); "
+        "(() => {{ let el = document.querySelector({}); "
         "if (!el) return 'not found'; el.click(); return 'clicked'; }})()",
-        selector);
+        selJson);
     return evalJs(js);
 }
 
 ToolResult BrowserAutomation::typeInto(std::string_view selector, std::string_view text) {
     // Focus the element first
     std::string focusJs = std::format(
-        "document.querySelector('{}')?.focus()", selector);
+        "document.querySelector({})?.focus()", json(selector).dump());
     auto focusRes = evalJs(focusJs);
     if (!focusRes) {
         return focusRes;
@@ -424,7 +425,7 @@ ToolResult BrowserAutomation::captureScreenshot() {
 ToolResult BrowserAutomation::waitForSelector(std::string_view selector, int timeoutMs) {
     auto start = std::chrono::steady_clock::now();
     std::string js = std::format(
-        "!!document.querySelector('{}')", selector);
+        "!!document.querySelector({})", json(selector).dump());
 
     while (true) {
         auto result = evalJs(js);

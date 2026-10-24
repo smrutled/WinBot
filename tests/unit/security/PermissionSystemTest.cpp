@@ -152,6 +152,16 @@ TEST_F(PermissionSystemTest, CheckProcess_BlocksWithoutExtension) {
     EXPECT_TRUE(perms.checkProcess("winlogon").error().contains("Cannot kill protected process"));
 }
 
+TEST_F(PermissionSystemTest, CheckProcess_RejectsPartialNumericPidAsNumber) {
+    PermissionSystem::Config cfg;
+    cfg.blockedProcesses = {"winlogon.exe"};
+    cfg.confirmProcessKill = false;
+    PermissionSystem perms{cfg};
+
+    // "4x" is not a pure integer, so it is treated as process name "4x" rather than PID 4
+    EXPECT_TRUE(perms.checkProcess("4x").has_value());
+}
+
 TEST_F(PermissionSystemTest, CheckShellCommand_RejectsDangerousInMcpMode) {
     PermissionSystem::Config cfg;
     cfg.confirmShellCommands = false;
