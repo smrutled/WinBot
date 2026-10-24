@@ -323,7 +323,7 @@ void McpServer::notifyToolsListChanged() {
 void McpServer::handleToolsList(const json& id, const json& /*params*/) {
     json toolsArray = json::array();
 
-    for (const auto& tool : m_tools.tools()) {
+    for (const auto& tool : m_tools.snapshot()) {
         if (tool) {
             toolsArray.push_back(toolToMcpSchema(*tool));
         }
@@ -354,7 +354,7 @@ void McpServer::handleToolsCall(const json& id, const json& params) {
     }
 
     // NOLINTNEXTLINE(bugprone-exception-escape) - Task lambda catches all exceptions internally
-    m_threadPool->enqueue([this, id, toolName, args, activeReq, reqKey]() {
+    m_threadPool->enqueue([this, id, toolName = std::move(toolName), args = std::move(args), activeReq, reqKey = std::move(reqKey)]() mutable {
         try {
             // Ensure request is deregistered from active map on exit
             struct ActiveGuard {
@@ -386,7 +386,7 @@ void McpServer::handleToolsCall(const json& id, const json& params) {
             }
 
             // 2. Dispatch with cooperative cancellation token
-            auto result = m_tools.dispatch(json{{"tool", toolName}, {"args", args}}, stopToken);
+            auto result = m_tools.dispatch(toolName, args, stopToken);
 
             // 3. Check if cancelled during execution
             if (stopToken.stop_requested() || activeReq->cancelled.load(std::memory_order_acquire)) {

@@ -38,7 +38,7 @@ void ToolServer::run() {
                     req->args.dump());
 
         auto result = (m_tools != nullptr)
-            ? m_tools->dispatch(json{{"tool", req->tool}, {"args", req->args}})
+            ? m_tools->dispatch(req->tool, req->args)
             : err("No tool registry configured");
 
         std::string response;
