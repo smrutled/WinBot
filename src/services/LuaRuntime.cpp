@@ -802,7 +802,7 @@ void LuaRuntime::bindWinBotAPI() {
                 return self->element().value.empty() ? self->element().name : self->element().value;
             })
             .addFunction("controlType", [](UIHandle* self) -> std::string {
-                return (self != nullptr) ? self->element().controlType : "";
+                return (self != nullptr) ? std::string(self->element().controlType) : "";
             })
             .addFunction("automationId", [](UIHandle* self) -> std::string {
                 return (self != nullptr) ? self->element().automationId : "";

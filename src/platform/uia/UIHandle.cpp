@@ -103,7 +103,6 @@ ToolResult UIHandle::sendKeyPress(std::string_view combo) {
 UIHandle::UIHandle(UIElement el, const UIAutomationScanner* scanner)
     : m_element(std::move(el))
     , m_scanner(scanner)
-    , m_runtimeId(m_element.runtimeId)
     , m_ownerHwnd(m_element.ownerHwnd)
 {}
 
@@ -119,7 +118,7 @@ UIHandle UIHandle::parent() const {
     }
 
     const UIElement& root = *res;
-    if (const UIElement* parent = root.findParent(m_runtimeId)) {
+    if (const UIElement* parent = root.findParent(m_element.runtimeId)) {
         return UIHandle{*parent, m_scanner};
     }
 
@@ -153,7 +152,7 @@ UIHandle UIHandle::window() const {
 UIHandle& UIHandle::click() {
     // 1. Try high-reliability 'Invoke' pattern if supported
     if (m_element.supportsInvoke && m_scanner != nullptr) {
-        auto res = m_scanner->invokeElement(m_runtimeId);
+        auto res = m_scanner->invokeElement(m_element.runtimeId);
         if (res) {
             WINBOT_INFO("Invoked Default Action for [{}] '{}'.", 
                        m_element.controlType, m_element.name);
@@ -268,21 +267,19 @@ bool UIHandle::refresh() {
     auto res = m_scanner->scanWindowByHandle(m_ownerHwnd);
     if (res) {
         // 1. Try exact RuntimeId match (most robust)
-        if (!m_runtimeId.empty()) {
-            if (const UIElement* found = res->findByRuntimeId(m_runtimeId)) {
-                m_element = *found;
-                m_runtimeId = m_element.runtimeId;
+        if (!m_element.runtimeId.empty()) {
+            if (UIElement* found = res->findByRuntimeId(m_element.runtimeId)) {
+                m_element = std::move(*found);
                 return true;
             }
         }
 
         // 2. Fallback to Name/AutomationId matching via findInSubtree
         // This handles cases where RuntimeId might have changed significantly (unlikely but possible)
-        std::string searchKey = m_element.automationId.empty() ? m_element.name : m_element.automationId;
+        std::string_view searchKey = m_element.automationId.empty() ? m_element.name : m_element.automationId;
         if (!searchKey.empty()) {
-            if (const UIElement* found = res->findInSubtree(searchKey)) {
-                m_element = *found;
-                m_runtimeId = m_element.runtimeId;
+            if (UIElement* found = res->findInSubtree(searchKey)) {
+                m_element = std::move(*found);
                 return true;
             }
         }

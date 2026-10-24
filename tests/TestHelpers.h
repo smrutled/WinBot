@@ -60,14 +60,14 @@ public:
 // ────────────────────────────────────
 
 inline UIElement
-createMockElement(std::string name, std::string controlType,
+createMockElement(std::string name, std::string_view controlType = "Pane",
                   std::string automationId = "", RECT bounds = {0, 0, 100, 30},
                   bool isEnabled = true, bool isFocusable = true,
                   std::vector<int> runtimeId = {1}, DWORD dwProcessId = 1234,
                   HWND ownerHwnd = reinterpret_cast<HWND>(0x1000)) {
   UIElement el;
   el.name = std::move(name);
-  el.controlType = std::move(controlType);
+  el.controlType = controlType;
   el.automationId = std::move(automationId);
   el.bounds = bounds;
   el.isEnabled = isEnabled;
@@ -168,7 +168,7 @@ inline UIElement createDeepTree(int depth,
     std::vector<int> rId = {1};
     rId.push_back(i);
     std::string name = (i == depth) ? leafName : std::format("Level_{}", i);
-    std::string type = (i == depth) ? "Button" : "Group";
+    std::string_view type = (i == depth) ? "Button" : "Group";
     current->children.push_back(
         createMockElement(name, type, std::format("id_{}", i), {0, 0, 100, 100},
                           true, true, rId));

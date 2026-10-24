@@ -11,6 +11,8 @@
 #include <string_view>
 #include <vector>
 
+#include <type_traits>
+
 // Forward declarations
 class UIHandle;
 class UIAutomationScanner;
@@ -20,18 +22,18 @@ class UIAutomationScanner;
 inline constexpr DWORD UIA_EXCLUDE_NONE = 0xFFFFFFFF;
 
 struct UIElement {
-  std::string name;         // Accessible name (button label, field text, etc.)
-  std::string value;        // Inner text or value (for Text/Edit controls)
-  std::string controlType;  // "Button", "Edit", "Window", "List", etc.
-  std::string automationId; // AutomationId if available
-  RECT bounds{};            // Bounding rectangle in screen coords
+  std::string name;             // Accessible name (button label, field text, etc.)
+  std::string value;            // Inner text or value (for Text/Edit controls)
+  std::string_view controlType; // "Button", "Edit", "Window", "List", etc.
+  std::string automationId;     // AutomationId if available
+  RECT bounds{};                // Bounding rectangle in screen coords
   bool isEnabled{true};
   bool isFocusable{false};
   bool isFocused{false};
-  std::vector<int> runtimeId; // UIA RuntimeId for re-location
-  HWND ownerHwnd{nullptr};    // HWND of the owning window
-  DWORD dwProcessId{0};       // Process ID that owns this element
-  bool supportsInvoke{false}; // Whether UIA_InvokePatternId is supported
+  std::vector<int> runtimeId;   // UIA RuntimeId for re-location
+  HWND ownerHwnd{nullptr};      // HWND of the owning window
+  DWORD dwProcessId{0};         // Process ID that owns this element
+  bool supportsInvoke{false};   // Whether UIA_InvokePatternId is supported
   std::vector<UIElement> children;
 
   // Absolute screen center of this element.
@@ -41,32 +43,45 @@ struct UIElement {
   }
 
   // Search the tree starting from THIS element (inclusive).
-  [[nodiscard]] const UIElement *
-  findInSubtree(std::string_view nameOrId,
-                std::string_view controlTypeFilter = "",
-                DWORD excludedPid = 0) const;
+  template <class Self>
+  [[nodiscard]] auto findInSubtree(this Self& self,
+                                   std::string_view nameOrId,
+                                   std::string_view controlTypeFilter = "",
+                                   DWORD excludedPid = 0)
+      -> std::conditional_t<std::is_const_v<Self>, const UIElement*, UIElement*>
+  {
+    return self.findBestMatch(nameOrId, controlTypeFilter, excludedPid);
+  }
 
   // Search for the BEST matching element in the subtree (inclusive).
   // Prioritizes: Exact Name/ID match + Window type > Exact Match > Substring
   // Window > Substring match.
-  [[nodiscard]] const UIElement *
-  findBestMatch(std::string_view nameOrId,
-                std::string_view controlTypeFilter = "",
-                DWORD excludedPid = 0) const;
+  template <class Self>
+  [[nodiscard]] auto findBestMatch(this Self& self,
+                                   std::string_view nameOrId,
+                                   std::string_view controlTypeFilter = "",
+                                   DWORD excludedPid = 0)
+      -> std::conditional_t<std::is_const_v<Self>, const UIElement*, UIElement*>;
 
   // Search the tree by UIA RuntimeId.
-  [[nodiscard]] const UIElement *
-  findByRuntimeId(const std::vector<int> &id) const;
+  template <class Self>
+  [[nodiscard]] auto findByRuntimeId(this Self& self,
+                                     const std::vector<int>& id)
+      -> std::conditional_t<std::is_const_v<Self>, const UIElement*, UIElement*>;
 
   // Search the tree starting from this element's CHILDREN (exclusive).
-  [[nodiscard]] const UIElement *
-  findDescendant(std::string_view nameOrId,
-                 std::string_view controlTypeFilter = "",
-                 DWORD excludedPid = 0) const;
+  template <class Self>
+  [[nodiscard]] auto findDescendant(this Self& self,
+                                    std::string_view nameOrId,
+                                    std::string_view controlTypeFilter = "",
+                                    DWORD excludedPid = 0)
+      -> std::conditional_t<std::is_const_v<Self>, const UIElement*, UIElement*>;
 
   // Search the tree for the parent of the element with the given RuntimeId.
-  [[nodiscard]] const UIElement *
-  findParent(const std::vector<int> &targetRuntimeId) const;
+  template <class Self>
+  [[nodiscard]] auto findParent(this Self& self,
+                                const std::vector<int>& targetRuntimeId)
+      -> std::conditional_t<std::is_const_v<Self>, const UIElement*, UIElement*>;
 };
 
 // ── UIAutomationScanner

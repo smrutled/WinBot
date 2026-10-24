@@ -72,7 +72,6 @@ public:
 private:
     UIElement                    m_element;
     const UIAutomationScanner*   m_scanner;  // non-owning; allows copy/assign
-    std::vector<int>             m_runtimeId;
     HWND                         m_ownerHwnd;
 };
 

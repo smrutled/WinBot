@@ -15,8 +15,28 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <ranges>
 #include <regex>
+#include <span>
 #include <thread>
+
+constexpr char ascii_lower(char c) noexcept {
+    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+}
+
+constexpr auto ci_eq = [](char a, char b) noexcept {
+    return ascii_lower(a) == ascii_lower(b);
+};
+
+inline bool ci_equal(std::string_view a, std::string_view b) noexcept {
+    return std::ranges::equal(a, b, ci_eq);
+}
+
+inline bool ci_contains(std::string_view haystack, std::string_view needle) noexcept {
+    if (needle.empty()) return true;
+    if (haystack.size() < needle.size()) return false;
+    return !std::ranges::search(haystack, needle, ci_eq).empty();
+}
 
 template <typename T>
 static void safeRelease(void*& p) noexcept {
@@ -364,11 +384,11 @@ UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwn
         SafeArrayGetLBound(saId, 1, &lb);
         SafeArrayGetUBound(saId, 1, &ub);
         if (ub >= lb) {
-            result.runtimeId.reserve(static_cast<size_t>(ub - lb) + 1);
-            for (long i = lb; i <= ub; ++i) {
-                int val = 0;
-                SafeArrayGetElement(saId, &i, &val);
-                result.runtimeId.push_back(val);
+            void* rawData = nullptr;
+            if (SUCCEEDED(::SafeArrayAccessData(saId, &rawData)) && rawData != nullptr) {
+                auto span = std::span<const int>(static_cast<const int*>(rawData), static_cast<size_t>(ub - lb + 1));
+                result.runtimeId.assign_range(span);
+                (void)::SafeArrayUnaccessData(saId);
             }
         }
         SafeArrayDestroy(saId);
@@ -398,13 +418,16 @@ UIElement UIAutomationScanner::walkElement(void* elPtr, int depth, HWND ownerHwn
     }
 
     // 9. Check for Invoke Pattern (only for invokable control types)
-    bool canInvoke = (ctypeId == UIA_ButtonControlTypeId ||
-                      ctypeId == UIA_CheckBoxControlTypeId ||
-                      ctypeId == UIA_RadioButtonControlTypeId ||
-                      ctypeId == UIA_MenuItemControlTypeId ||
-                      ctypeId == UIA_HyperlinkControlTypeId ||
-                      ctypeId == UIA_SplitButtonControlTypeId ||
-                      ctypeId == UIA_TabItemControlTypeId);
+    constexpr std::array<long, 7> kInvokableTypes = {{
+        UIA_ButtonControlTypeId,
+        UIA_CheckBoxControlTypeId,
+        UIA_RadioButtonControlTypeId,
+        UIA_MenuItemControlTypeId,
+        UIA_HyperlinkControlTypeId,
+        UIA_SplitButtonControlTypeId,
+        UIA_TabItemControlTypeId,
+    }};
+    bool canInvoke = std::ranges::contains(kInvokableTypes, ctypeId);
     if (canInvoke) {
         VARIANT varInv;
         VariantInit(&varInv);
@@ -551,37 +574,46 @@ std::string_view UIAutomationScanner::controlTypeToString(long id) noexcept {
     }
 }
 
-std::string UIAutomationScanner::serialize(const UIElement& el, int indent) {
+static void serializeImpl(const UIElement& el, int indent, std::string& out) {
     bool hasData = !el.name.empty() || !el.automationId.empty() || el.isFocusable || !el.value.empty() || el.controlType == "Document";
     bool isVisible = (el.bounds.right > el.bounds.left && el.bounds.bottom > el.bounds.top);
     bool shouldPrint = hasData && isVisible;
 
-    std::string out;
     if (shouldPrint) {
-        std::string spaces(static_cast<size_t>(indent * 2), ' ');
-        out = std::format("{}[{}: \"{}\"", spaces, el.controlType, el.name);
+        std::format_to(std::back_inserter(out), "{:{}}[{}: \"{}\"", "", indent * 2, el.controlType, el.name);
         
         if (!el.value.empty()) {
             std::string dispVal = el.value;
             std::ranges::replace(dispVal, '\n', ' ');
-            if (dispVal.length() > 60) dispVal = dispVal.substr(0, 57) + "...";
-            out += std::format(" value=\"{}\"", dispVal);
+            if (dispVal.length() > 60) {
+                dispVal.resize(57);
+                dispVal += "...";
+            }
+            std::format_to(std::back_inserter(out), " value=\"{}\"", dispVal);
         }
         
-        if (!el.automationId.empty()) out += std::format(" id=\"{}\"", el.automationId);
-        out += std::format(" at ({},{},{},{})",
+        if (!el.automationId.empty()) {
+            std::format_to(std::back_inserter(out), " id=\"{}\"", el.automationId);
+        }
+        std::format_to(std::back_inserter(out), " at ({},{},{},{})",
             el.bounds.left, el.bounds.top, el.bounds.right, el.bounds.bottom);
-        if (el.isFocused)    out += " focused";
-        if (!el.isEnabled)   out += " disabled";
-        if (el.isFocusable)  out += " focusable";
+        if (el.isFocused)      out += " focused";
+        if (!el.isEnabled)     out += " disabled";
+        if (el.isFocusable)    out += " focusable";
         if (el.supportsInvoke) out += " invokable";
         out += "]\n";
     }
 
     int childIndent = shouldPrint ? (indent + 1) : indent;
     for (const auto& child : el.children) {
-        out += serialize(child, childIndent);
+        serializeImpl(child, childIndent, out);
     }
+}
+
+std::string UIAutomationScanner::serialize(const UIElement& el, int indent) {
+    std::string out;
+    out.reserve(4096);
+    serializeImpl(el, indent, out);
     return out;
 }
 
@@ -594,21 +626,8 @@ int UIAutomationScanner::countInteractive(const UIElement& el) {
 std::optional<POINT> UIAutomationScanner::findElementCenter(
     const UIElement& root, std::string_view name)
 {
-    std::string lowerName(name);
-    to_lower_inplace(lowerName);
-
-    std::string elName = root.name;
-    to_lower_inplace(elName);
-
-    std::string elId = root.automationId;
-    to_lower_inplace(elId);
-
-    if ((elName.contains(lowerName) || elId.contains(lowerName)) && root.isEnabled) {
-        POINT center{
-            (root.bounds.left + root.bounds.right)  / 2,
-            (root.bounds.top  + root.bounds.bottom) / 2
-        };
-        return center;
+    if ((ci_contains(root.name, name) || ci_contains(root.automationId, name)) && root.isEnabled) {
+        return root.getCenter();
     }
     for (const auto& child : root.children) {
         if (auto pt = findElementCenter(child, name); pt.has_value()) return pt;
@@ -616,36 +635,35 @@ std::optional<POINT> UIAutomationScanner::findElementCenter(
     return std::nullopt;
 }
 
-// ── UIElement::findParent ────────────────────────────────────────────────────
-const UIElement* UIElement::findParent(const std::vector<int>& targetRuntimeId) const {
+// ── UIElement finders with deducing this ──────────────────────────────────────
+
+template <class Self>
+auto UIElement::findParent(this Self& self, const std::vector<int>& targetRuntimeId)
+    -> std::conditional_t<std::is_const_v<Self>, const UIElement*, UIElement*>
+{
     if (targetRuntimeId.empty()) return nullptr;
 
-    for (const auto& child : children) {
+    for (auto& child : self.children) {
         if (child.runtimeId == targetRuntimeId) {
-            return this;
+            return &self;
         }
-        if (const UIElement* found = child.findParent(targetRuntimeId)) {
+        if (auto* found = child.findParent(targetRuntimeId)) {
             return found;
         }
     }
     return nullptr;
 }
 
-// ── UIElement::findInSubtree ──────────────────────────────────────────────────
-const UIElement* UIElement::findInSubtree(std::string_view nameOrId, std::string_view controlTypeFilter, DWORD excludedPid) const {
+template <class Self>
+auto UIElement::findBestMatch(this Self& self,
+                              std::string_view nameOrId,
+                              std::string_view controlTypeFilter,
+                              DWORD excludedPid)
+    -> std::conditional_t<std::is_const_v<Self>, const UIElement*, UIElement*>
+{
+    using ElemPtr = std::conditional_t<std::is_const_v<Self>, const UIElement*, UIElement*>;
 
-    if (auto* res = findBestMatch(nameOrId, controlTypeFilter, excludedPid)) return res;
-    return nullptr;
-}
-
-const UIElement* UIElement::findBestMatch(std::string_view nameOrId, std::string_view controlTypeFilter, DWORD excludedPid) const {
-    std::string query(nameOrId);
-    to_lower_inplace(query);
-    
-    std::string typeFilter(controlTypeFilter);
-    to_lower_inplace(typeFilter);
-
-    const UIElement* best = nullptr;
+    ElemPtr best = nullptr;
     int bestScore = -1;
 
     DWORD targetExcludedPid = 0;
@@ -657,97 +675,103 @@ const UIElement* UIElement::findBestMatch(std::string_view nameOrId, std::string
         targetExcludedPid = ::GetCurrentProcessId();
     }
 
-    auto check = [&](const UIElement& el) {
-        // STRICT SELF-EXCLUSION: Completely ignore any elements from our own process (or injected test PID).
-        // This prevents WinBot from ever 'seeing' itself and its own REPL text.
-        if (targetExcludedPid != 0 && el.dwProcessId == targetExcludedPid) return;
+    auto check = [&](ElemPtr el) {
+        if (targetExcludedPid != 0 && el->dwProcessId == targetExcludedPid) return;
 
         int score = 0;
-        
-        // Control type filtering
-        if (!typeFilter.empty()) {
-            std::string elType = el.controlType;
-            to_lower_inplace(elType);
-            if (elType != typeFilter) return; // Must match type exactly if filter provided
-            score += 100; // Bonus for matching requested type
+
+        if (!controlTypeFilter.empty()) {
+            if (!ci_equal(el->controlType, controlTypeFilter)) return;
+            score += 100;
         }
 
-        // Match against Name or AutomationId
-        std::string n = el.name;
-        to_lower_inplace(n);
-        std::string aid = el.automationId;
-        to_lower_inplace(aid);
+        bool exactMatch = (ci_equal(el->name, nameOrId) || ci_equal(el->automationId, nameOrId));
+        bool partialMatch = (ci_contains(el->name, nameOrId) || ci_contains(el->automationId, nameOrId));
 
-        bool exactMatch = (n == query || aid == query);
-        bool partialMatch = (n.contains(query) || aid.contains(query));
+        if (exactMatch) score += 50;
+        else if (partialMatch) score += 10;
+        else return;
 
-        if (exactMatch) score = 50;
-        else if (partialMatch) score = 10;
-        else return; // No match
-
-        // Heavy weight for 'Window' control type
-        if (el.controlType == "Window") score += 100;
-
-        // Weight for interactive vs plain elements
-        if (el.isFocusable || el.isEnabled) score += 5;
+        if (el->controlType == "Window") score += 100;
+        if (el->isFocusable || el->isEnabled) score += 5;
 
         if (score > bestScore) {
             bestScore = score;
-            best = &el;
+            best = el;
         }
     };
 
-    // DFS search through subtree
-    std::vector<const UIElement*> stack;
-    stack.push_back(this);
+    std::vector<ElemPtr> stack;
+    stack.push_back(&self);
 
     while (!stack.empty()) {
-        const UIElement* el = stack.back();
+        ElemPtr el = stack.back();
         stack.pop_back();
 
-        check(*el);
-        // If we found a perfect window match exactly, we could potentially stop early...
-        // but it's safer to check the whole tree since it's small and we want the 'best'.
-        if (bestScore >= 150) break; 
+        check(el);
+        if (bestScore >= 150) break;
 
-        for (auto it = el->children.rbegin(); it != el->children.rend(); ++it) {
-            stack.push_back(&(*it));
-        }
+        stack.append_range(el->children | std::views::reverse | std::views::transform([](auto& c) -> ElemPtr {
+            return &c;
+        }));
     }
 
     return best;
 }
 
-const UIElement* UIElement::findByRuntimeId(const std::vector<int>& id) const {
+template <class Self>
+auto UIElement::findByRuntimeId(this Self& self, const std::vector<int>& id)
+    -> std::conditional_t<std::is_const_v<Self>, const UIElement*, UIElement*>
+{
+    using ElemPtr = std::conditional_t<std::is_const_v<Self>, const UIElement*, UIElement*>;
     if (id.empty()) return nullptr;
-    if (runtimeId == id) return this;
+    if (self.runtimeId == id) return &self;
 
-    std::vector<const UIElement*> stack;
-    for (auto it = children.rbegin(); it != children.rend(); ++it) {
-        stack.push_back(&(*it));
-    }
+    std::vector<ElemPtr> stack;
+    stack.append_range(self.children | std::views::reverse | std::views::transform([](auto& c) -> ElemPtr {
+        return &c;
+    }));
 
     while (!stack.empty()) {
-        const UIElement* el = stack.back();
+        ElemPtr el = stack.back();
         stack.pop_back();
 
         if (el->runtimeId == id) return el;
 
-        for (auto it = el->children.rbegin(); it != el->children.rend(); ++it) {
-            stack.push_back(&(*it));
+        stack.append_range(el->children | std::views::reverse | std::views::transform([](auto& c) -> ElemPtr {
+            return &c;
+        }));
+    }
+    return nullptr;
+}
+
+template <class Self>
+auto UIElement::findDescendant(this Self& self,
+                               std::string_view nameOrId,
+                               std::string_view controlTypeFilter,
+                               DWORD excludedPid)
+    -> std::conditional_t<std::is_const_v<Self>, const UIElement*, UIElement*>
+{
+    for (auto& child : self.children) {
+        if (auto* res = child.findInSubtree(nameOrId, controlTypeFilter, excludedPid)) {
+            return res;
         }
     }
     return nullptr;
 }
 
-// ── UIElement::findDescendant ─────────────────────────────────────────────────
-const UIElement* UIElement::findDescendant(std::string_view nameOrId, std::string_view controlTypeFilter, DWORD excludedPid) const {
-    // Only search children (important for WaitSelect/Click children)
-    for (const auto& child : children) {
-        if (const UIElement* res = child.findInSubtree(nameOrId, controlTypeFilter, excludedPid)) return res;
-    }
-    return nullptr;
-}
+// Explicit template instantiations
+template auto UIElement::findParent(this UIElement&, const std::vector<int>&) -> UIElement*;
+template auto UIElement::findParent(this const UIElement&, const std::vector<int>&) -> const UIElement*;
+
+template auto UIElement::findBestMatch(this UIElement&, std::string_view, std::string_view, DWORD) -> UIElement*;
+template auto UIElement::findBestMatch(this const UIElement&, std::string_view, std::string_view, DWORD) -> const UIElement*;
+
+template auto UIElement::findByRuntimeId(this UIElement&, const std::vector<int>&) -> UIElement*;
+template auto UIElement::findByRuntimeId(this const UIElement&, const std::vector<int>&) -> const UIElement*;
+
+template auto UIElement::findDescendant(this UIElement&, std::string_view, std::string_view, DWORD) -> UIElement*;
+template auto UIElement::findDescendant(this const UIElement&, std::string_view, std::string_view, DWORD) -> const UIElement*;
 
 // ── UIAutomationScanner::select ───────────────────────────────────────────────
 std::expected<UIHandle, std::string> UIAutomationScanner::select(
@@ -759,24 +783,25 @@ std::expected<UIHandle, std::string> UIAutomationScanner::select(
         return scanWindow(windowTitle);
     };
 
-    auto tryFind = [&](const UIElement& tree) -> std::optional<UIElement> {
-        if (const UIElement* el = tree.findBestMatch(nameOrId, controlTypeFilter))
-            return *el;
+    auto tryFind = [&](auto& tree) -> std::optional<UIHandle> {
+        if (auto* el = tree.findBestMatch(nameOrId, controlTypeFilter)) {
+            return UIHandle{ std::move(*el), this };
+        }
         return std::nullopt;
     };
 
     // Try primary scan (focused window or named window)
     if (auto tree = scanOnce(); tree) {
-        if (auto el = tryFind(*tree)) {
-            return UIHandle{ std::move(*el), this };
+        if (auto h = tryFind(*tree)) {
+            return std::move(*h);
         }
     }
 
     // FALLBACK: If windowTitle was empty, try a global Desktop search
     if (windowTitle.empty()) {
         if (auto tree = scanDesktop(); tree) {
-            if (auto el = tryFind(*tree)) {
-                return UIHandle{ std::move(*el), this };
+            if (auto h = tryFind(*tree)) {
+                return std::move(*h);
             }
         }
     }
@@ -787,8 +812,8 @@ std::expected<UIHandle, std::string> UIAutomationScanner::select(
     using namespace std::chrono_literals;
     auto match = poll_until(std::chrono::milliseconds(timeoutMs), 100ms, [&]() -> std::optional<UIHandle> {
         if (auto tree = scanOnce(); tree) {
-            if (auto el = tryFind(*tree)) {
-                return UIHandle{ std::move(*el), this };
+            if (auto h = tryFind(*tree)) {
+                return std::move(*h);
             }
         }
         return std::nullopt;
