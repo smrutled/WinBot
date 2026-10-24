@@ -26,7 +26,10 @@ static void safeRelease(void*& p) noexcept {
 }
 
 UIAutomationScanner::UIAutomationScanner() {
-    ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    HRESULT hrInit = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(hrInit) && hrInit != RPC_E_CHANGED_MODE) {
+        WINBOT_WARN("UIAutomationScanner: CoInitializeEx returned 0x{:08X}", static_cast<uint32_t>(hrInit));
+    }
 
     void* rawAutomation = nullptr;
     HRESULT hr = ::CoCreateInstance(
@@ -337,7 +340,12 @@ std::expected<void, std::string> UIAutomationScanner::invokeElement(const std::v
     }
     for (long i = 0; i < static_cast<long>(runtimeId.size()); ++i) {
         int val = runtimeId.at(static_cast<size_t>(i));
-        SafeArrayPutElement(varId.parray, &i, &val);
+        HRESULT hrPut = SafeArrayPutElement(varId.parray, &i, &val);
+        if (FAILED(hrPut)) {
+            VariantClear(&varId);
+            root->Release();
+            return std::unexpected("Failed to populate SAFEARRAY element for RuntimeId");
+        }
     }
     // NOLINTEND(cppcoreguidelines-pro-type-union-access)
 

@@ -33,6 +33,14 @@ if(MSVC)
         _WIN32_WINNT=0x0A00 # Target Windows 10/11 APIs
     )
     
+    if(WINBOT_ENABLE_STATIC_ANALYSIS)
+        set(DEFAULT_RULESET_PATH "$ENV{VSINSTALLDIR}/Team Tools/Static Analysis Tools/Rule Sets/AllRules.ruleset")
+        if(NOT EXISTS "${DEFAULT_RULESET_PATH}")
+            set(DEFAULT_RULESET_PATH "C:/Program Files/Microsoft Visual Studio/18/Community/Team Tools/Static Analysis Tools/Rule Sets/AllRules.ruleset")
+        endif()
+        set(WINBOT_MSVC_RULESET "${DEFAULT_RULESET_PATH}" CACHE FILEPATH "Path to MSVC Code Analysis RuleSet")
+    endif()
+
     # Global MSVC strict flags and standard conformance
     target_compile_options(winbot_strict_warnings INTERFACE
         /MP
@@ -46,10 +54,13 @@ if(MSVC)
         /Zc:templateScope
         /EHsc
         /W4
+        /sdl # Microsoft Security Development Lifecycle (SDL) checks (elevates security warnings to errors)
+        /Zc:preprocessor # Standard ISO C/C++ conforming preprocessor
+        /Zc:lambda # Standard-conforming lambda processor
         # Suppress warnings originating from external/Windows SDK headers
         /external:anglebrackets
         /external:W0
-        # Elevated strict warnings
+        # Elevated strict warnings (Microsoft recommended off-by-default warnings)
         /w14242 # conversion from 'type1' to 'type2', possible loss of data
         /w14254 # conversion from 'type1' to 'type2', possible loss of data
         /w14263 # member function does not override any base class virtual member function
@@ -62,15 +73,33 @@ if(MSVC)
         /w14547 # operator before comma has no effect
         /w14549 # operator before comma has no effect
         /w14555 # expression has no effect
+        /w14571 # catch(...) semantics changed since Visual C++ 7.1; SEH not caught
         /w14619 # pragma warning: there is no warning number
         /w14640 # thread-unsafe static member initialization
+        /w14774 # format string expected in argument is not a string literal
+        /w14777 # format specifier type mismatch
         /w14826 # conversion from 'type1' to 'type2' is sign-extended
         /w14905 # wide string literal cast to LPSTR
         /w14906 # string literal cast to LPWSTR
         /w14928 # illegal copy-initialization
+        /w15038 # data member initialization order mismatch
+        /w15042 # function declaration at block scope cannot have storage class or type specifier
+        /w15219 # implicit conversion from integral type to floating-point type
+        /w15246 # initialization of a subobject should be wrapped in braces
+        /w15262 # implicit fall-through in switch statement
+        /w15264 # 'const' variable is not used
+        # Critical structural bugs promoted directly to errors
+        /we4715 # not all control paths return a value
+        /we4150 # deletion of pointer to incomplete type
+        /we4456 # declaration hides previous local declaration
+        /we4457 # declaration hides function parameter
+        /we4458 # declaration hides class member
         $<$<BOOL:${WINBOT_ENABLE_WERROR}>:/WX>
-        $<$<BOOL:${WINBOT_ENABLE_STATIC_ANALYSIS}>:/analyze:quiet>
+        $<$<BOOL:${WINBOT_ENABLE_STATIC_ANALYSIS}>:/analyze>
+        $<$<BOOL:${WINBOT_ENABLE_STATIC_ANALYSIS}>:/analyze:autolog->
         $<$<BOOL:${WINBOT_ENABLE_STATIC_ANALYSIS}>:/analyze:external->
+        $<$<BOOL:${WINBOT_ENABLE_STATIC_ANALYSIS}>:/analyze:ruleset${WINBOT_MSVC_RULESET}>
+        /wd6326 # Potential comparison of a constant with another constant (triggers on GTest EXPECT/ASSERT macro expansions)
     )
 
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

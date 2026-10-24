@@ -146,7 +146,9 @@ bool BrowserAutomation::connectToPage() {
         return false;
     }
 
-    // Upgrade to WebSocket
+    // Upgrade to WebSocket: WinHttp specification mandates nullptr and 0 for this option,
+    // which contradicts WinHttpSetOption's general SAL annotation.
+#pragma warning(suppress: 6387)
     ::WinHttpSetOption(req, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0);
     ::WinHttpAddRequestHeaders(req,
         L"Upgrade: websocket\r\nConnection: Upgrade",

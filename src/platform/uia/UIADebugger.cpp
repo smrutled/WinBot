@@ -319,11 +319,11 @@ bool UIADebugger::dispatchOnHandle(UIHandle &h, std::string_view methodToken) {
 // ───────────────────────────────────────────────────────────────
 bool UIADebugger::execSegment(std::string_view seg) {
   // Trim whitespace
-  auto s = seg.find_first_not_of(" \t");
-  auto e = seg.find_last_not_of(" \t");
-  if (s == std::string_view::npos)
+  auto startPos = seg.find_first_not_of(" \t");
+  auto endPos = seg.find_last_not_of(" \t");
+  if (startPos == std::string_view::npos)
     return true;
-  std::string cmd(seg.substr(s, e - s + 1));
+  std::string cmd(seg.substr(startPos, endPos - startPos + 1));
 
   if (cmd == "exit" || cmd == "quit")
     return false;
