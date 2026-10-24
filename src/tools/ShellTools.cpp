@@ -216,11 +216,16 @@ ToolResult httpGet(std::string_view url, std::string_view /*headers*/) {
 
     std::string body;
     DWORD available = 0;
-    DWORD downloaded = 0;
     while (::WinHttpQueryDataAvailable(req, &available) != FALSE && available > 0) {
-        std::string chunk(available, '\0');
-        ::WinHttpReadData(req, chunk.data(), available, &downloaded);
-        body.append(chunk.data(), downloaded);
+        size_t oldSize = body.size();
+        body.resize_and_overwrite(oldSize + available, [&](char* p, size_t) {
+            DWORD downloaded = 0;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            if (::WinHttpReadData(req, p + oldSize, available, &downloaded) != FALSE) {
+                return oldSize + downloaded;
+            }
+            return oldSize;
+        });
     }
 
     ::WinHttpCloseHandle(req);
@@ -256,9 +261,13 @@ ToolResult searchWeb(std::string_view query) {
         if (anchor == std::string::npos) {
             break;
         }
-        auto start = html.find('>', anchor) + 1;
+        auto gt = html.find('>', anchor);
+        if (gt == std::string::npos) {
+            break;
+        }
+        auto start = gt + 1;
         auto end   = html.find("</a>", start);
-        if (start == std::string::npos || end == std::string::npos) {
+        if (end == std::string::npos) {
             break;
         }
         std::string text = html.substr(start, end - start);

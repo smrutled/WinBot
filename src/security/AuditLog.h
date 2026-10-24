@@ -2,6 +2,7 @@
 #define WINBOT_AUDITLOG_H
 #include "Common.h"
 #include <filesystem>
+#include <fstream>
 #include <mutex>
 
 // ── AuditLog ─────────────────────────────────────────────────────────────────
@@ -28,6 +29,7 @@ public:
 private:
     std::filesystem::path m_path;
     std::mutex            m_mutex;
+    std::ofstream         m_stream;
     bool                  m_enabled{ true }; // false if the log dir couldn't be created
 };
 

@@ -79,11 +79,16 @@ std::expected<json, std::string> BrowserAutomation::fetchPageList() const {
 
     std::string body;
     DWORD avail = 0;
-    DWORD read = 0;
     while (::WinHttpQueryDataAvailable(req, &avail) != 0 && avail > 0) {
-        std::string chunk(avail, '\0');
-        ::WinHttpReadData(req, chunk.data(), avail, &read);
-        body.append(chunk.data(), read);
+        size_t oldSize = body.size();
+        body.resize_and_overwrite(oldSize + avail, [&](char* p, size_t) {
+            DWORD read = 0;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            if (::WinHttpReadData(req, p + oldSize, avail, &read) != 0) {
+                return oldSize + read;
+            }
+            return oldSize;
+        });
     }
     ::WinHttpCloseHandle(req);
     ::WinHttpCloseHandle(conn);

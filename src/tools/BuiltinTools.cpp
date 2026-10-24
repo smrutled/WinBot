@@ -195,13 +195,8 @@ ToolResult ReloadLuaToolsTool::execute(const json& /*args*/) {
     }
     size_t count = m_loader->reload();
     auto tools = m_loader->loadedToolNames();
-    std::string list;
-    for (size_t i = 0; i < tools.size(); ++i) {
-        if (i > 0) {
-            list += ", ";
-        }
-        list += tools.at(i);
-    }
+    using namespace std::string_view_literals;
+    std::string list = std::views::join_with(tools, ", "sv) | std::ranges::to<std::string>();
     return ok(std::format("Reloaded {} Lua tool(s): [{}]", count, list));
 }
 

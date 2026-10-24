@@ -1,5 +1,6 @@
 #ifndef WINBOT_SCHEDULER_H
 #define WINBOT_SCHEDULER_H
+#include <condition_variable>
 #include <ctime>
 #include <functional>
 #include <mutex>
@@ -39,6 +40,7 @@ public:
 private:
   std::vector<TaskDef> m_tasks;
   mutable std::mutex m_mutex;
+  mutable std::condition_variable_any m_cv;
   TaskCallback m_callback;
   std::jthread m_thread; // C++20 — auto-joins on destruction
 

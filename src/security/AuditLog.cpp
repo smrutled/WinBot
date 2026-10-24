@@ -1,5 +1,5 @@
 #include "security/AuditLog.h"
-#include <fstream>
+#include <print>
 
 AuditLog::AuditLog(std::filesystem::path logPath)
     : m_path(std::move(logPath))
@@ -7,6 +7,12 @@ AuditLog::AuditLog(std::filesystem::path logPath)
     // Ensure the parent directory exists
     try {
         std::filesystem::create_directories(m_path.parent_path());
+        m_stream.open(m_path, std::ios::app);
+        if (!m_stream.is_open()) {
+            m_enabled = false;
+            WINBOT_WARN("AuditLog: cannot open log file '{}'. File audit logging disabled.", m_path.string());
+            return;
+        }
     } catch (const std::filesystem::filesystem_error& e) {
         // Never let audit logging crash the server; degrade to stderr-only.
         WINBOT_WARN("AuditLog: cannot create log directory '{}' ({}). File audit logging disabled.",
@@ -31,8 +37,8 @@ void AuditLog::record(const AuditEntry& entry) {
     };
 
     std::scoped_lock lock{ m_mutex };
-    std::ofstream file{ m_path, std::ios::app };
-    file << record.dump() << '\n';
+    std::println(m_stream, "{}", record.dump());
+    m_stream.flush();
 }
 
 void AuditLog::note(std::string_view message) {
@@ -44,6 +50,6 @@ void AuditLog::note(std::string_view message) {
         { "note", std::string(message) }
     };
     std::scoped_lock lock{ m_mutex };
-    std::ofstream file{ m_path, std::ios::app };
-    file << record.dump() << '\n';
+    std::println(m_stream, "{}", record.dump());
+    m_stream.flush();
 }

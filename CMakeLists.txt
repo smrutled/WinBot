@@ -240,13 +240,6 @@ target_link_libraries(WinBot_Core PUBLIC
     dwmapi
 )
 
-if(MSVC)
-    target_compile_options(WinBot_Core PUBLIC
-        /W4
-        /std:c++latest
-    )
-endif()
-
 if(WINBOT_CLANG_TIDY_COMMAND)
     set_target_properties(WinBot_Core PROPERTIES CXX_CLANG_TIDY "${WINBOT_CLANG_TIDY_COMMAND}")
 endif()
@@ -256,10 +249,6 @@ add_executable(WinBot src/main.cpp)
 target_link_libraries(WinBot PRIVATE WinBot_Core)
 
 if(MSVC)
-    target_compile_options(WinBot PRIVATE
-        /W4
-        /std:c++latest
-    )
     target_link_options(WinBot PRIVATE
         "/WHOLEARCHIVE:WinBot_Core"
     )

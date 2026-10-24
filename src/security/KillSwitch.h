@@ -43,9 +43,8 @@ private:
   static inline bool s_needShift{false};
   static inline DWORD s_vkCode{'X'};
 
-  static inline std::thread s_thread;
-  static inline std::atomic<bool> s_stopThread{false};
-  static inline DWORD s_threadId{0};
+  static inline std::jthread s_thread;
+  static inline std::atomic<DWORD> s_threadId{0};
 };
 
 #endif // WINBOT_KILLSWITCH_H

@@ -107,32 +107,30 @@ bool UIADebugger::dispatchOnHandle(UIHandle &h, std::string_view methodToken) {
     return false;
   }
   std::string method(methodToken.substr(0, paren));
-  // Normalize method to Pascal Case
-  if (!method.empty()) {
-    if (method == "click")
-      method = "Click";
-    else if (method == "type")
-      method = "Type";
-    else if (method == "key")
-      method = "Key";
-    else if (method == "wait")
-      method = "Wait";
-    else if (method == "select")
-      method = "Select";
-    else if (method == "waitselect")
-      method = "WaitSelect";
-    else if (method == "refresh")
-      method = "Refresh";
-    else if (method == "parent")
-      method = "Parent";
-    else if (method == "window")
-      method = "Window";
-    else if (method == "text" || method == "gettext")
-      method = "Text";
-    else if (method == "value" || method == "getvalue")
-      method = "Value";
-    else if (method == "info")
-      method = "Info";
+  struct MethodAlias {
+    std::string_view from;
+    std::string_view to;
+  };
+  constexpr std::array<MethodAlias, 14> kChainMethodAliases = {{
+      {"click", "Click"},
+      {"type", "Type"},
+      {"key", "Key"},
+      {"wait", "Wait"},
+      {"select", "Select"},
+      {"waitselect", "WaitSelect"},
+      {"refresh", "Refresh"},
+      {"parent", "Parent"},
+      {"window", "Window"},
+      {"text", "Text"},
+      {"gettext", "Text"},
+      {"value", "Value"},
+      {"getvalue", "Value"},
+      {"info", "Info"},
+  }};
+
+  if (auto it = std::ranges::find(kChainMethodAliases, method, &MethodAlias::from);
+      it != kChainMethodAliases.end()) {
+    method = it->to;
   }
 
   std::string argStr(methodToken.substr(paren + 1));
@@ -434,43 +432,38 @@ bool UIADebugger::execSegment(std::string_view seg) {
     }
   }
 
-  // Normalize method to Pascal Case for internal matching (while allowing
-  // lowercase input)
-  if (!method.empty()) {
-    if (method == "scan")
-      method = "Scan";
-    else if (method == "wait")
-      method = "Wait";
-    else if (method == "type")
-      method = "Type";
-    else if (method == "key")
-      method = "Key";
-    else if (method == "focus")
-      method = "Focus";
-    else if (method == "clear")
-      method = "Clear";
-    else if (method == "vars" || method == "list")
-      method = "Vars";
-    else if (method == "select")
-      method = "Select";
-    else if (method == "selectwindow")
-      method = "SelectWindow";
-    else if (method == "waitselect")
-      method = "WaitSelect";
-    else if (method == "waitwindow")
-      method = "WaitWindow";
-    else if (method == "waitclick")
-      method = "WaitClick";
-    else if (method == "click")
-      method = "Click";
-    else if (method == "text" || method == "gettext")
-      method = "Text";
-    else if (method == "value" || method == "getvalue")
-      method = "Value";
-    else if (method == "scanfocus" || method == "scanfocused")
-      method = "ScanFocus";
-    else if (method == "exit" || method == "quit")
-      method = "Exit";
+  struct MethodAlias {
+    std::string_view from;
+    std::string_view to;
+  };
+  constexpr std::array<MethodAlias, 22> kTopMethodAliases = {{
+      {"scan", "Scan"},
+      {"wait", "Wait"},
+      {"type", "Type"},
+      {"key", "Key"},
+      {"focus", "Focus"},
+      {"clear", "Clear"},
+      {"vars", "Vars"},
+      {"list", "Vars"},
+      {"select", "Select"},
+      {"selectwindow", "SelectWindow"},
+      {"waitselect", "WaitSelect"},
+      {"waitwindow", "WaitWindow"},
+      {"waitclick", "WaitClick"},
+      {"click", "Click"},
+      {"text", "Text"},
+      {"gettext", "Text"},
+      {"value", "Value"},
+      {"getvalue", "Value"},
+      {"scanfocus", "ScanFocus"},
+      {"scanfocused", "ScanFocus"},
+      {"exit", "Exit"},
+      {"quit", "Exit"},
+  }};
+
+  if (auto it = std::ranges::find(kTopMethodAliases, method, &MethodAlias::from);
+      it != kTopMethodAliases.end()) {
+    method = it->to;
   }
 
   if (method == "Exit")
@@ -725,11 +718,11 @@ bool UIADebugger::execute(std::string_view line) {
   if (line.empty())
     return true;
   bool keepGoing = true;
-  std::string lineStr(line);
-  std::stringstream ss(lineStr);
-  std::string seg;
-  while (std::getline(ss, seg, ';') && keepGoing &&
-         !KillSwitch::isTriggered()) {
+  for (const auto part : std::views::split(line, ';')) {
+    if (!keepGoing || KillSwitch::isTriggered()) {
+      break;
+    }
+    std::string_view seg(part.begin(), part.end());
     keepGoing = execSegment(seg);
   }
   return keepGoing;

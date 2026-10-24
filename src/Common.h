@@ -163,9 +163,35 @@ inline std::wstring utf8_to_wide(std::string_view utf8) {
 }
 
 // ── Case conversion helpers ────────────────────────────────────────────────
+constexpr char ascii_lower(char c) noexcept {
+    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
+}
+
+constexpr char ascii_upper(char c) noexcept {
+    return (c >= 'a' && c <= 'z') ? static_cast<char>(c - ('a' - 'A')) : c;
+}
+
+constexpr auto ci_char_eq = [](char a, char b) noexcept -> bool {
+    return ascii_lower(a) == ascii_lower(b);
+};
+
+inline bool ci_equal(std::string_view a, std::string_view b) noexcept {
+    return std::ranges::equal(a, b, ci_char_eq);
+}
+
+inline bool ci_contains(std::string_view haystack, std::string_view needle) noexcept {
+    if (needle.empty()) {
+        return true;
+    }
+    if (haystack.size() < needle.size()) {
+        return false;
+    }
+    return !std::ranges::search(haystack, needle, ci_char_eq).empty();
+}
+
 inline void to_lower_inplace(std::string& s) {
-    (void)std::ranges::transform(s, s.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
+    (void)std::ranges::transform(s, s.begin(), [](char c) noexcept {
+        return ascii_lower(c);
     });
 }
 inline void to_lower_inplace(std::wstring& s) {
@@ -174,8 +200,8 @@ inline void to_lower_inplace(std::wstring& s) {
     });
 }
 inline void to_upper_inplace(std::string& s) {
-    (void)std::ranges::transform(s, s.begin(), [](unsigned char c) {
-        return static_cast<char>(std::toupper(c));
+    (void)std::ranges::transform(s, s.begin(), [](char c) noexcept {
+        return ascii_upper(c);
     });
 }
 
@@ -192,11 +218,10 @@ inline bool g_mcpMode = false; // NOLINT(cppcoreguidelines-avoid-non-const-globa
 
 // ── Console logging ─────────────────────────────────────────────────────────
 inline void winbot_log_raw(std::string_view tag, std::string_view msg) {
-  auto formatted = std::format("[{}] {}\n", tag, msg);
   if (g_mcpMode) {
-    (void)std::fwrite(formatted.data(), 1, formatted.size(), stderr);
+    std::println(stderr, "[{}] {}", tag, msg);
   } else {
-    std::print("{}", formatted);
+    std::println("[{}] {}", tag, msg);
   }
 }
 

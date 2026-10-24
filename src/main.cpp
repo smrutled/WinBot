@@ -82,52 +82,54 @@ static PermissionSystem::Config buildPermConfig(const json &cfg) {
   perm.confirmFileDelete = p.value("confirm_file_delete", true);
   perm.confirmProcessKill = p.value("confirm_process_kill", true);
 
+  static constexpr auto kShellTools = std::to_array<std::string_view>({"run_command"});
+  static constexpr auto kFilesTools = std::to_array<std::string_view>({
+      "read_file", "write_file", "append_file", "list_directory", "delete_file", "copy_file"
+  });
+  static constexpr auto kBrowserTools = std::to_array<std::string_view>({
+      "browser_navigate", "browser_click", "browser_type", "browser_get_dom", "browser_eval"
+  });
+  static constexpr auto kInputTools = std::to_array<std::string_view>({
+      "click", "double_click", "drag", "scroll", "type", "key"
+  });
+  static constexpr auto kScreenTools = std::to_array<std::string_view>({
+      "screenshot", "screenshot_window", "screenshot_element"
+  });
+  static constexpr auto kWindowsTools = std::to_array<std::string_view>({
+      "focus_window", "close_window", "get_window_list", "ui_scan", "ui_scan_window"
+  });
+  static constexpr auto kProcessTools = std::to_array<std::string_view>({
+      "kill_process", "get_processes"
+  });
+  static constexpr auto kWebTools = std::to_array<std::string_view>({
+      "http_get", "search_web"
+  });
+  static constexpr auto kSystemTools = std::to_array<std::string_view>({
+      "get_system_info", "get_cursor_position"
+  });
+
+  static constexpr std::array<std::pair<std::string_view, std::span<const std::string_view>>, 9> kToolGroups = {{
+      {"shell", kShellTools},
+      {"files", kFilesTools},
+      {"browser", kBrowserTools},
+      {"input", kInputTools},
+      {"screen", kScreenTools},
+      {"windows", kWindowsTools},
+      {"process", kProcessTools},
+      {"web", kWebTools},
+      {"system", kSystemTools},
+  }};
+
   // Parse and expand disabled_tools
   for (const auto &v : cfg.value("disabled_tools", json::array())) {
     std::string item = v.get<std::string>();
-    if (item == "shell") {
-      perm.disabledTools.insert("run_command");
-    } else if (item == "files") {
-      perm.disabledTools.insert("read_file");
-      perm.disabledTools.insert("write_file");
-      perm.disabledTools.insert("append_file");
-      perm.disabledTools.insert("list_directory");
-      perm.disabledTools.insert("delete_file");
-      perm.disabledTools.insert("copy_file");
-    } else if (item == "browser") {
-      perm.disabledTools.insert("browser_navigate");
-      perm.disabledTools.insert("browser_click");
-      perm.disabledTools.insert("browser_type");
-      perm.disabledTools.insert("browser_get_dom");
-      perm.disabledTools.insert("browser_eval");
-    } else if (item == "input") {
-      perm.disabledTools.insert("click");
-      perm.disabledTools.insert("double_click");
-      perm.disabledTools.insert("drag");
-      perm.disabledTools.insert("scroll");
-      perm.disabledTools.insert("type");
-      perm.disabledTools.insert("key");
-    } else if (item == "screen") {
-      perm.disabledTools.insert("screenshot");
-      perm.disabledTools.insert("screenshot_window");
-      perm.disabledTools.insert("screenshot_element");
-    } else if (item == "windows") {
-      perm.disabledTools.insert("focus_window");
-      perm.disabledTools.insert("close_window");
-      perm.disabledTools.insert("get_window_list");
-      perm.disabledTools.insert("ui_scan");
-      perm.disabledTools.insert("ui_scan_window");
-    } else if (item == "process") {
-      perm.disabledTools.insert("kill_process");
-      perm.disabledTools.insert("get_processes");
-    } else if (item == "web") {
-      perm.disabledTools.insert("http_get");
-      perm.disabledTools.insert("search_web");
-    } else if (item == "system") {
-      perm.disabledTools.insert("get_system_info");
-      perm.disabledTools.insert("get_cursor_position");
+    auto it = std::ranges::find(kToolGroups, item, &std::pair<std::string_view, std::span<const std::string_view>>::first);
+    if (it != kToolGroups.end()) {
+      for (std::string_view tool : it->second) {
+        perm.disabledTools.emplace(tool);
+      }
     } else {
-      perm.disabledTools.insert(item);
+      perm.disabledTools.insert(std::move(item));
     }
   }
 

@@ -143,13 +143,15 @@ TEST(ToolDecouplingTest, ToolServerRequiresZeroSubsystemDependencies) {
     registry.registerTool(std::make_unique<CustomEchoTool>());
 
     std::filesystem::path logPath = std::filesystem::temp_directory_path() / "test_audit.log";
-    AuditLog audit{logPath};
+    {
+        AuditLog audit{logPath};
+        ToolServer server(ToolServer::Config{.actionDelayMs = 0}, registry, audit);
+        // ToolServer successfully instantiated without UIAutomationScanner, ScreenCapture, or BrowserAutomation!
+        EXPECT_TRUE(registry.hasTool("custom_echo"));
+    }
 
-    ToolServer server(ToolServer::Config{.actionDelayMs = 0}, registry, audit);
-    // ToolServer successfully instantiated without UIAutomationScanner, ScreenCapture, or BrowserAutomation!
-    EXPECT_TRUE(registry.hasTool("custom_echo"));
-
-    std::filesystem::remove(logPath);
+    std::error_code ec;
+    std::filesystem::remove(logPath, ec);
 }
 
 TEST(ToolDecouplingTest, ReadFileToolBlocksProtectedPaths) {

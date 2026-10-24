@@ -13,13 +13,18 @@ ToolResult readFile(std::string_view path) {
     if (!file) {
         return err(std::format("Cannot open file: {}", path));
     }
-    std::ostringstream ss;
-    ss << file.rdbuf();
-    std::string content = ss.str();
-    if (content.size() > 32768) {
-        content = content.substr(0, 32768) + "\n... (truncated at 32KB)";
+    constexpr size_t kMaxRead = 32768;
+    std::string content;
+    content.resize_and_overwrite(kMaxRead + 1, [&](char* buf, size_t n) {
+        file.read(buf, static_cast<std::streamsize>(n));
+        return static_cast<size_t>(file.gcount());
+    });
+
+    if (content.size() > kMaxRead) {
+        content.resize(kMaxRead);
+        content += "\n... (truncated at 32KB)";
     }
-    return ok(content);
+    return ok(std::move(content));
 }
 
 ToolResult writeFile(std::string_view path, std::string_view content) {

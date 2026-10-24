@@ -7,11 +7,12 @@
 #include <cmath>
 #include <mutex>
 #include <random>
-#include <unordered_map>
+#include <ranges>
 
 namespace tools {
 
 static std::recursive_mutex s_inputMutex;
+static std::mt19937 s_rng(std::random_device{}());
 
 // ── Mouse helpers ─────────────────────────────────────────────────────────────
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters) - Established Win32 mouse event signature (x, y, flags, data)
@@ -64,21 +65,20 @@ ToolResult humanMouseMove(int toX, int toY) {
         return ok(std::format("Mouse moved to ({}, {})", toX, toY));
     }
 
-    static std::mt19937 gen(std::random_device{}());
     std::uniform_real_distribution<double> distDist(0.1, 0.4);
     std::uniform_real_distribution<double> offsetDist(-0.3, 0.3);
 
     // Control points for cubic bezier
-    double p1x = from.x + (toX - from.x) * distDist(gen) + (toY - from.y) * offsetDist(gen);
-    double p1y = from.y + (toY - from.y) * distDist(gen) - (toX - from.x) * offsetDist(gen);
+    double p1x = from.x + (toX - from.x) * distDist(s_rng) + (toY - from.y) * offsetDist(s_rng);
+    double p1y = from.y + (toY - from.y) * distDist(s_rng) - (toX - from.x) * offsetDist(s_rng);
 
-    double p2x = from.x + (toX - from.x) * (1.0 - distDist(gen)) - (toY - from.y) * offsetDist(gen);
-    double p2y = from.y + (toY - from.y) * (1.0 - distDist(gen)) + (toX - from.x) * offsetDist(gen);
+    double p2x = from.x + (toX - from.x) * (1.0 - distDist(s_rng)) - (toY - from.y) * offsetDist(s_rng);
+    double p2y = from.y + (toY - from.y) * (1.0 - distDist(s_rng)) + (toX - from.x) * offsetDist(s_rng);
 
     // Slight overshoot
     std::uniform_real_distribution<double> overDist(0.0, 5.0); // 0-5px overshoot
-    double overX = toX + ((toX - from.x) / dist) * overDist(gen);
-    double overY = toY + ((toY - from.y) / dist) * overDist(gen);
+    double overX = toX + ((toX - from.x) / dist) * overDist(s_rng);
+    double overY = toY + ((toY - from.y) / dist) * overDist(s_rng);
 
     int steps = std::max(15, std::min(80, static_cast<int>(dist / 6.0)));
     std::uniform_int_distribution<int> jitterDist(-1, 1);
@@ -95,8 +95,8 @@ ToolResult humanMouseMove(int toX, int toY) {
         // Ease in-out (smoothstep-like)
         double easeT = t * t * (3.0 - 2.0 * t);
 
-        int cx = static_cast<int>(cubicBezier(easeT, from.x, p1x, p2x, overX)) + jitterDist(gen);
-        int cy = static_cast<int>(cubicBezier(easeT, from.y, p1y, p2y, overY)) + jitterDist(gen);
+        int cx = static_cast<int>(cubicBezier(easeT, from.x, p1x, p2x, overX)) + jitterDist(s_rng);
+        int cy = static_cast<int>(cubicBezier(easeT, from.y, p1y, p2y, overY)) + jitterDist(s_rng);
         
         sendMouseEvent(cx, cy, MOUSEEVENTF_MOVE);
         
@@ -106,7 +106,7 @@ ToolResult humanMouseMove(int toX, int toY) {
     }
     
     // Correction move back to target if we overshot
-    ::Sleep(20 + std::max(0, jitterDist(gen) * 10));
+    ::Sleep(20 + std::max(0, jitterDist(s_rng) * 10));
     sendMouseEvent(toX, toY, MOUSEEVENTF_MOVE);
     
     return ok(std::format("Human mouse moved to ({}, {})", toX, toY));
@@ -119,7 +119,8 @@ ToolResult click(int x, int y, std::string_view button, bool humanMove) {
         if (!moveRes) {
             return moveRes;
         }
-        ::Sleep(30 + (rand() % 40));
+        std::uniform_int_distribution<int> jitter(0, 39);
+        ::Sleep(30 + jitter(s_rng));
     } else {
         sendMouseEvent(x, y, MOUSEEVENTF_MOVE);
         ::Sleep(30);
@@ -164,15 +165,17 @@ ToolResult drag(int x1, int y1, int x2, int y2, bool humanMove) {
         if (!move1) {
             return move1;
         }
-        ::Sleep(30 + (rand() % 40));
+        std::uniform_int_distribution<int> delay40(0, 39);
+        std::uniform_int_distribution<int> delay20(0, 19);
+        ::Sleep(30 + delay40(s_rng));
         sendMouseEvent(x1, y1, MOUSEEVENTF_LEFTDOWN);
-        ::Sleep(50 + (rand() % 40));
+        ::Sleep(50 + delay40(s_rng));
         // Drag with human movement
         auto move2 = humanMouseMove(x2, y2);
         if (!move2) {
             return move2;
         }
-        ::Sleep(20 + (rand() % 20));
+        ::Sleep(20 + delay20(s_rng));
     } else {
         sendMouseEvent(x1, y1, MOUSEEVENTF_MOVE);
         ::Sleep(30);
@@ -199,7 +202,8 @@ ToolResult scroll(int x, int y, int delta, bool humanMove) {
         if (!moveRes) {
             return moveRes;
         }
-        ::Sleep(30 + (rand() % 30));
+        std::uniform_int_distribution<int> jitter(0, 29);
+        ::Sleep(30 + jitter(s_rng));
     } else {
         sendMouseEvent(x, y, MOUSEEVENTF_MOVE);
         ::Sleep(30);
@@ -210,20 +214,44 @@ ToolResult scroll(int x, int y, int delta, bool humanMove) {
 }
 
 // ── Keyboard helpers ──────────────────────────────────────────────────────────
-static const std::unordered_map<std::string, int> kKeyMap = {
-    {"enter", VK_RETURN}, {"return", VK_RETURN},
-    {"tab", VK_TAB}, {"escape", VK_ESCAPE}, {"esc", VK_ESCAPE},
-    {"space", VK_SPACE}, {"backspace", VK_BACK}, {"delete", VK_DELETE},
-    {"home", VK_HOME}, {"end", VK_END},
-    {"pageup", VK_PRIOR}, {"pagedown", VK_NEXT},
-    {"left", VK_LEFT}, {"right", VK_RIGHT}, {"up", VK_UP}, {"down", VK_DOWN},
-    {"f1",VK_F1},{"f2",VK_F2},{"f3",VK_F3},{"f4",VK_F4},{"f5",VK_F5},
-    {"f6",VK_F6},{"f7",VK_F7},{"f8",VK_F8},{"f9",VK_F9},
-    {"f10",VK_F10},{"f11",VK_F11},{"f12",VK_F12},
-    {"ctrl", VK_CONTROL}, {"alt", VK_MENU}, {"shift", VK_SHIFT},
-    {"win", VK_LWIN}, {"windows", VK_LWIN},
-    {"insert", VK_INSERT}, {"printscreen", VK_SNAPSHOT},
-};
+constexpr std::array<std::pair<std::string_view, int>, 35> kKeyMap = {{
+    {"alt", VK_MENU},
+    {"backspace", VK_BACK},
+    {"ctrl", VK_CONTROL},
+    {"delete", VK_DELETE},
+    {"down", VK_DOWN},
+    {"end", VK_END},
+    {"enter", VK_RETURN},
+    {"esc", VK_ESCAPE},
+    {"escape", VK_ESCAPE},
+    {"f1", VK_F1},
+    {"f10", VK_F10},
+    {"f11", VK_F11},
+    {"f12", VK_F12},
+    {"f2", VK_F2},
+    {"f3", VK_F3},
+    {"f4", VK_F4},
+    {"f5", VK_F5},
+    {"f6", VK_F6},
+    {"f7", VK_F7},
+    {"f8", VK_F8},
+    {"f9", VK_F9},
+    {"home", VK_HOME},
+    {"insert", VK_INSERT},
+    {"left", VK_LEFT},
+    {"pagedown", VK_NEXT},
+    {"pageup", VK_PRIOR},
+    {"printscreen", VK_SNAPSHOT},
+    {"return", VK_RETURN},
+    {"right", VK_RIGHT},
+    {"shift", VK_SHIFT},
+    {"space", VK_SPACE},
+    {"tab", VK_TAB},
+    {"up", VK_UP},
+    {"win", VK_LWIN},
+    {"windows", VK_LWIN},
+}};
+static_assert(std::ranges::is_sorted(kKeyMap, {}, &std::pair<std::string_view, int>::first));
 
 static void sendKeyEvent(WORD vk, bool down) {
     // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
@@ -243,25 +271,29 @@ ToolResult keyPress(std::string_view combo) {
 
     std::vector<WORD> modifiers;
     std::vector<WORD> keys;
-    size_t start = 0;
-    while (start <= lower.size()) {
-        size_t plus = lower.find('+', start);
-        std::string token = lower.substr(start, (plus == std::string::npos ? lower.size() : plus) - start);
+
+    for (auto&& part : std::views::split(lower, '+')) {
+        // NOLINTNEXTLINE(bugprone-dangling-handle)
+        std::string_view token(part.begin(), part.end());
         // Trim whitespace
         while (!token.empty() && std::isspace(static_cast<unsigned char>(token.front())) != 0) {
-            token.erase(token.begin());
+            token.remove_prefix(1);
         }
         while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back())) != 0) {
-            token.pop_back();
+            token.remove_suffix(1);
+        }
+        if (token.empty()) {
+            continue;
         }
 
         WORD vk = 0;
         bool isModifier = false;
-        if (auto it = kKeyMap.find(token); it != kKeyMap.end()) {
+        auto it = std::ranges::lower_bound(kKeyMap, token, {}, &std::pair<std::string_view, int>::first);
+        if (it != kKeyMap.end() && it->first == token) {
             vk = static_cast<WORD>(it->second);
             isModifier = (vk == VK_CONTROL || vk == VK_MENU || vk == VK_SHIFT || vk == VK_LWIN);
         } else if (token.size() == 1) {
-            vk = static_cast<WORD>(::VkKeyScanA(token.at(0)) & 0xFF);
+            vk = static_cast<WORD>(::VkKeyScanA(token.front()) & 0xFF);
         }
 
         if (vk != 0) {
@@ -271,10 +303,6 @@ ToolResult keyPress(std::string_view combo) {
                 keys.push_back(vk);
             }
         }
-        if (plus == std::string::npos) {
-            break;
-        }
-        start = plus + 1;
     }
 
     // Press modifiers down

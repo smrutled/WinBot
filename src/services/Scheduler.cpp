@@ -11,7 +11,24 @@ Scheduler::Scheduler(TaskCallback callback)
     WINBOT_INFO("Scheduler: started background thread");
 }
 
-Scheduler::~Scheduler() = default;
+#include <charconv>
+#include <ranges>
+
+static std::optional<int> parse_cron_int(std::string_view s) noexcept {
+    int val = 0;
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), val);
+    if (ec == std::errc{} && ptr == s.data() + s.size()) {
+        return val;
+    }
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    return std::nullopt;
+}
+
+Scheduler::~Scheduler() {
+    m_thread.request_stop();
+    m_cv.notify_all();
+}
 
 void Scheduler::addTask(TaskDef task) {
     std::scoped_lock lock{ m_mutex };
@@ -37,8 +54,12 @@ std::vector<Scheduler::TaskDef> Scheduler::listTasks() const {
 
 void Scheduler::workerLoop(const std::stop_token& stopToken) {
     while (!stopToken.stop_requested()) {
-        // Sleep for 30s between checks
-        std::this_thread::sleep_for(std::chrono::seconds(30));
+        {
+            std::unique_lock lock{ m_mutex };
+            (void)m_cv.wait_for(lock, stopToken, std::chrono::seconds(30), [&] {
+                return stopToken.stop_requested();
+            });
+        }
         if (stopToken.stop_requested()) {
             break;
         }
@@ -83,40 +104,34 @@ bool Scheduler::cronMatches(const std::string& expr, const std::tm& t) noexcept 
     }
 }
 
-bool Scheduler::cronFieldMatches(const std::string& field, int value, int min, [[maybe_unused]] int max) noexcept {
-    try {
-        if (field == "*") {
-            return true;
-        }
-
-        // Step: */n
-        if (field.starts_with("*/")) {
-            int step = std::stoi(field.substr(2));
-            return (step > 0) && ((value - min) % step == 0);
-        }
-
-        // Range: a-b
-        if (auto dash = field.find('-'); dash != std::string::npos) {
-            int a = std::stoi(field.substr(0, dash));
-            int b = std::stoi(field.substr(dash + 1));
-            return value >= a && value <= b;
-        }
-
-        // List: a,b,c
-        if (field.contains(',')) {
-            std::istringstream ss(field);
-            std::string token;
-            while (std::getline(ss, token, ',')) {
-                if (std::stoi(token) == value) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        // Exact value
-        return std::stoi(field) == value;
-    } catch (...) {
-        return false;
+bool Scheduler::cronFieldMatches(const std::string& fieldStr, int value, int min, [[maybe_unused]] int max) noexcept {
+    std::string_view field = fieldStr;
+    if (field == "*") {
+        return true;
     }
+
+    // Step: */n
+    if (field.starts_with("*/")) {
+        auto step = parse_cron_int(field.substr(2));
+        return step.has_value() && (*step > 0) && ((value - min) % *step == 0);
+    }
+
+    // Range: a-b
+    if (auto dash = field.find('-'); dash != std::string_view::npos) {
+        auto a = parse_cron_int(field.substr(0, dash));
+        auto b = parse_cron_int(field.substr(dash + 1));
+        return a.has_value() && b.has_value() && value >= *a && value <= *b;
+    }
+
+    // List: a,b,c
+    if (field.contains(',')) {
+        return std::ranges::any_of(std::views::split(field, ','), [&](const auto& part) {
+            // NOLINTNEXTLINE(bugprone-dangling-handle)
+            std::string_view token(part.begin(), part.end());
+            return parse_cron_int(token) == value;
+        });
+    }
+
+    // Exact value
+    return parse_cron_int(field) == value;
 }

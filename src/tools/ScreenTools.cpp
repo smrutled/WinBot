@@ -13,29 +13,27 @@ ToolResult uiScan() {
     return ok(UIAutomationScanner::serialize(*result));
 }
 
+inline std::string to_image_json(const ScreenCapture::CaptureResult& r) {
+    json result = {
+        {"width", r.width},
+        {"height", r.height},
+        {"format", "png"},
+        {"data", ScreenCapture::toBase64(r.pngBytes)}
+    };
+    return result.dump();
+}
+
 ToolResult screenshot() {
-    auto result = ScreenCapture::captureDesktop();
-    if (!result) {
-        return err(result.error());
-    }
-    return ok(std::format("Screenshot: {}x{} ({} bytes)", result->width, result->height, result->pngBytes.size()));
+    return ScreenCapture::captureDesktop().transform([](const auto& r) {
+        return std::format("Screenshot: {}x{} ({} bytes)", r.width, r.height, r.pngBytes.size());
+    });
 }
 
 } // namespace tools
 
 // ── ScreenshotDesktopTool ────────────────────────────────────────────────────
 ToolResult ScreenshotDesktopTool::execute(const json& /*args*/) {
-    auto r = ScreenCapture::captureDesktop();
-    if (!r) {
-        return err(r.error());
-    }
-    json result = {
-        {"width", r->width},
-        {"height", r->height},
-        {"format", "png"},
-        {"data", ScreenCapture::toBase64(r->pngBytes)}
-    };
-    return ok(result.dump());
+    return ScreenCapture::captureDesktop().transform(tools::to_image_json);
 }
 
 // ── ScreenshotWindowTool ─────────────────────────────────────────────────────
@@ -76,18 +74,7 @@ ToolResult ScreenshotWindowTool::execute(const json& args) {
         return err(std::format("Found UIA element for '{}' but no HWND", title));
     }
 
-    auto r = ScreenCapture::captureWindow(hwnd, bringToFront);
-    if (!r) {
-        return err(r.error());
-    }
-
-    json result = {
-        {"width", r->width},
-        {"height", r->height},
-        {"format", "png"},
-        {"data", ScreenCapture::toBase64(r->pngBytes)}
-    };
-    return ok(result.dump());
+    return ScreenCapture::captureWindow(hwnd, bringToFront).transform(tools::to_image_json);
 }
 
 // ── ScreenshotElementTool ────────────────────────────────────────────────────
@@ -115,18 +102,7 @@ ToolResult ScreenshotElementTool::execute(const json& args) {
         return err("Invalid region: right must be > left and bottom must be > top");
     }
 
-    auto r = ScreenCapture::captureRegion(region);
-    if (!r) {
-        return err(r.error());
-    }
-
-    json result = {
-        {"width", r->width},
-        {"height", r->height},
-        {"format", "png"},
-        {"data", ScreenCapture::toBase64(r->pngBytes)}
-    };
-    return ok(result.dump());
+    return ScreenCapture::captureRegion(region).transform(tools::to_image_json);
 }
 
 // ── Self-Registration ────────────────────────────────────────────────────────

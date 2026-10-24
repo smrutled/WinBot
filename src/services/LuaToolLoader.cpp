@@ -150,12 +150,7 @@ bool LuaToolLoader::hasChanges() const {
 
 std::vector<std::string> LuaToolLoader::loadedToolNames() const {
     std::scoped_lock lock(m_mutex);
-    std::vector<std::string> names;
-    for (const auto& [_, toolNames] : m_pathToToolNames) {
-        for (const auto& name : toolNames) {
-            names.push_back(name);
-        }
-    }
+    auto names = m_pathToToolNames | std::views::values | std::views::join | std::ranges::to<std::vector<std::string>>();
     std::ranges::sort(names);
     return names;
 }

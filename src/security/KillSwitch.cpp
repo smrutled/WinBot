@@ -37,13 +37,16 @@ void KillSwitch::install(std::string_view hotkey) {
     s_vkCode = 'X';
   }
 
-  s_triggered.store(false);
-  s_stopThread = false;
+  s_triggered.store(false, std::memory_order_relaxed);
 
   // Run the hook on a dedicated background thread to prevent systemic typing
   // latency when the main thread blocks on std::cin or sleep.
-  s_thread = std::thread([hotkey_str = std::string(hotkey)]() {
-    s_threadId = ::GetCurrentThreadId();
+  s_thread = std::jthread([hotkey_str = std::string(hotkey)](const std::stop_token& stopToken) {
+    // Ensure message queue is created before publishing thread ID
+    MSG msg;
+    ::PeekMessageW(&msg, nullptr, 0, 0, PM_NOREMOVE);
+    s_threadId.store(::GetCurrentThreadId(), std::memory_order_release);
+    s_threadId.notify_one();
 
     s_hook = ::SetWindowsHookExW(WH_KEYBOARD_LL, lowLevelKeyboardProc,
                                  ::GetModuleHandleW(nullptr), 0);
@@ -55,10 +58,7 @@ void KillSwitch::install(std::string_view hotkey) {
     }
     WINBOT_INFO("KillSwitch installed — press {} to halt agent", hotkey_str);
 
-    MSG msg;
-    // GetMessage seamlessly blocks and sleeps the thread waiting for hook
-    // interrupts
-    while (!s_stopThread.load(std::memory_order_relaxed)) {
+    while (!stopToken.stop_requested()) {
       BOOL ret = ::GetMessageW(&msg, nullptr, 0, 0);
       if (ret <= 0) {
         break; // Error or WM_QUIT
@@ -72,14 +72,19 @@ void KillSwitch::install(std::string_view hotkey) {
       s_hook = nullptr;
     }
   });
+
+  // Synchronize: wait until hook thread has initialized its message queue and stored thread id
+  while (s_threadId.load(std::memory_order_acquire) == 0) {
+    s_threadId.wait(0);
+  }
 }
 
 void KillSwitch::uninstall() noexcept {
-  s_stopThread.store(true, std::memory_order_relaxed);
-  if (s_threadId != 0 && s_thread.joinable()) {
-    ::PostThreadMessageW(s_threadId, WM_QUIT, 0, 0);
+  DWORD tid = s_threadId.exchange(0, std::memory_order_acq_rel);
+  if (tid != 0 && s_thread.joinable()) {
+    s_thread.request_stop();
+    ::PostThreadMessageW(tid, WM_QUIT, 0, 0);
     s_thread.join();
-    s_threadId = 0;
   }
 }
 
