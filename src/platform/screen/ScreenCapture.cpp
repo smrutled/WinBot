@@ -14,6 +14,7 @@
 #include <bit>
 
 #include "platform/screen/ScreenCapture.h"
+#include "platform/win/WindowUtils.h"
 #include "Common.h"
 #include <vector>
 
@@ -62,20 +63,19 @@ ScreenCapture::captureHdc(HDC srcDc, int x, int y, int w, int h) {
         return std::unexpected("Invalid capture dimensions");
     }
 
-    HDC memDc = ::CreateCompatibleDC(srcDc);
-    if (memDc == nullptr) {
+    UniqueHdc memDc(::CreateCompatibleDC(srcDc));
+    if (!memDc) {
         return std::unexpected("CreateCompatibleDC failed");
     }
 
-    HBITMAP bmp = ::CreateCompatibleBitmap(srcDc, w, h);
-    if (bmp == nullptr) {
-        ::DeleteDC(memDc);
+    UniqueHbitmap bmp(::CreateCompatibleBitmap(srcDc, w, h));
+    if (!bmp) {
         return std::unexpected("CreateCompatibleBitmap failed");
     }
 
-    auto *old = static_cast<HBITMAP>(::SelectObject(memDc, bmp));
+    GdiSelectScope selMem(memDc.get(), bmp.get());
 
-    ::BitBlt(memDc, 0, 0, w, h, srcDc, x, y, SRCCOPY);
+    ::BitBlt(memDc.get(), 0, 0, w, h, srcDc, x, y, SRCCOPY);
 
     // Extract raw pixel data
     BITMAPINFO bi{};
@@ -88,12 +88,8 @@ ScreenCapture::captureHdc(HDC srcDc, int x, int y, int w, int h) {
 
     size_t pixelCount = static_cast<size_t>(w) * static_cast<size_t>(h);
     std::vector<uint32_t> pixels(pixelCount);
-    ::GetDIBits(memDc, bmp, 0, h, pixels.data(),
+    ::GetDIBits(memDc.get(), bmp.get(), 0, h, pixels.data(),
         &bi, DIB_RGB_COLORS);
-
-    ::SelectObject(memDc, old);
-    ::DeleteObject(bmp);
-    ::DeleteDC(memDc);
 
     // Swizzle BGRA -> RGBA in place
     for (auto& p : pixels) {
@@ -111,17 +107,15 @@ ScreenCapture::captureHdc(HDC srcDc, int x, int y, int w, int h) {
 // ──────────────────────────────────────────────────────────────────────────────
 std::expected<ScreenCapture::CaptureResult, std::string>
 ScreenCapture::captureDesktop() {
-    HDC dc = ::GetDC(nullptr);
-    if (dc == nullptr) {
+    UniqueReleaseDc dc(::GetDC(nullptr));
+    if (!dc) {
         return std::unexpected("GetDC(nullptr) failed");
     }
     int x  = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
     int y  = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
     int w  = ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int h  = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    auto result = captureHdc(dc, x, y, w, h);
-    ::ReleaseDC(nullptr, dc);
-    return result;
+    return captureHdc(dc.get(), x, y, w, h);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -151,35 +145,32 @@ ScreenCapture::captureWindowOffscreen(HWND hwnd) {
         return std::unexpected("Invalid window dimensions");
     }
 
-    HDC screenDc = ::GetDC(nullptr);
-    if (screenDc == nullptr) {
+    UniqueReleaseDc screenDc(::GetDC(nullptr));
+    if (!screenDc) {
         return std::unexpected("Failed to get screen DC");
     }
 
-    HDC memDc = ::CreateCompatibleDC(screenDc);
-    if (memDc == nullptr) {
-        ::ReleaseDC(nullptr, screenDc);
+    UniqueHdc memDc(::CreateCompatibleDC(screenDc.get()));
+    if (!memDc) {
         return std::unexpected("CreateCompatibleDC failed");
     }
-    HBITMAP bmp = ::CreateCompatibleBitmap(screenDc, ww, wh);
-    if (bmp == nullptr) {
-        ::DeleteDC(memDc);
-        ::ReleaseDC(nullptr, screenDc);
+    UniqueHbitmap bmp(::CreateCompatibleBitmap(screenDc.get(), ww, wh));
+    if (!bmp) {
         return std::unexpected("CreateCompatibleBitmap failed");
     }
-    auto *oldBmp = static_cast<HBITMAP>(::SelectObject(memDc, bmp));
+    GdiSelectScope selMem(memDc.get(), bmp.get());
 
-    BOOL pwOk = ::PrintWindow(hwnd, memDc, PW_RENDERFULLCONTENT);
+    BOOL pwOk = ::PrintWindow(hwnd, memDc.get(), PW_RENDERFULLCONTENT);
 
     RECT frameRect{};
     HRESULT hr = ::DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &frameRect, sizeof(frameRect));
 
     int finalW = ww;
     int finalH = wh;
-    HDC captureDc = memDc;
-    HBITMAP cropBmp = nullptr;
-    HBITMAP cropOld = nullptr;
-    HDC cropDc = nullptr;
+    HDC captureDc = memDc.get();
+    UniqueHbitmap cropBmp;
+    std::optional<GdiSelectScope> selCrop;
+    UniqueHdc cropDc;
 
     if (SUCCEEDED(hr)) {
         int fw = frameRect.right - frameRect.left;
@@ -187,23 +178,19 @@ ScreenCapture::captureWindowOffscreen(HWND hwnd) {
         int ox = frameRect.left - winRect.left;
         int oy = frameRect.top - winRect.top;
         if (ox >= 0 && oy >= 0 && fw > 0 && fh > 0 && (ox + fw) <= ww && (oy + fh) <= wh) {
-            cropDc = ::CreateCompatibleDC(screenDc);
-            cropBmp = (cropDc != nullptr) ? ::CreateCompatibleBitmap(screenDc, fw, fh) : nullptr;
-            if (cropDc != nullptr && cropBmp != nullptr) {
-                cropOld = static_cast<HBITMAP>(::SelectObject(cropDc, cropBmp));
-                ::BitBlt(cropDc, 0, 0, fw, fh, memDc, ox, oy, SRCCOPY);
-                captureDc = cropDc;
+            cropDc.reset(::CreateCompatibleDC(screenDc.get()));
+            if (cropDc) {
+                cropBmp.reset(::CreateCompatibleBitmap(screenDc.get(), fw, fh));
+            }
+            if (cropDc && cropBmp) {
+                selCrop.emplace(cropDc.get(), cropBmp.get());
+                ::BitBlt(cropDc.get(), 0, 0, fw, fh, memDc.get(), ox, oy, SRCCOPY);
+                captureDc = cropDc.get();
                 finalW = fw;
                 finalH = fh;
             } else {
-                if (cropBmp != nullptr) {
-                    ::DeleteObject(cropBmp);
-                }
-                if (cropDc != nullptr) {
-                    ::DeleteDC(cropDc);
-                }
-                cropBmp = nullptr;
-                cropDc = nullptr;
+                cropBmp.reset();
+                cropDc.reset();
             }
         }
     }
@@ -218,19 +205,9 @@ ScreenCapture::captureWindowOffscreen(HWND hwnd) {
 
     size_t pixelCount = static_cast<size_t>(finalW) * static_cast<size_t>(finalH);
     std::vector<uint32_t> pixels(pixelCount);
-    HBITMAP activeBmp = (cropBmp != nullptr ? cropBmp : bmp);
+    HBITMAP activeBmp = cropBmp ? cropBmp.get() : bmp.get();
     ::GetDIBits(captureDc, activeBmp, 0, finalH, pixels.data(),
                 &bi, DIB_RGB_COLORS);
-
-    if (cropDc != nullptr) {
-        ::SelectObject(cropDc, cropOld);
-        ::DeleteObject(cropBmp);
-        ::DeleteDC(cropDc);
-    }
-    ::SelectObject(memDc, oldBmp);
-    ::DeleteObject(bmp);
-    ::DeleteDC(memDc);
-    ::ReleaseDC(nullptr, screenDc);
 
     if (pwOk == 0 || isAllBlank(pixels)) {
         return std::unexpected("Offscreen render failed or produced empty image");
@@ -249,46 +226,9 @@ ScreenCapture::captureWindowOffscreen(HWND hwnd) {
     return CaptureResult{ .pngBytes = std::move(*pngResult), .width = finalW, .height = finalH };
 }
 
-static void bringWindowToForeground(HWND hwnd) {
-    if (hwnd == nullptr || ::IsWindow(hwnd) == 0) {
-        return;
-    }
-
-    if (::IsIconic(hwnd) != 0) {
-        ::ShowWindow(hwnd, SW_RESTORE);
-    } else if (::IsWindowVisible(hwnd) == 0) {
-        ::ShowWindow(hwnd, SW_SHOW);
-    }
-
-    HWND fgWnd = ::GetForegroundWindow();
-    DWORD fgThread = (fgWnd != nullptr) ? ::GetWindowThreadProcessId(fgWnd, nullptr) : 0;
-    DWORD targetThread = ::GetWindowThreadProcessId(hwnd, nullptr);
-    DWORD curThread = ::GetCurrentThreadId();
-
-    if (fgThread != 0 && fgThread != curThread) {
-        ::AttachThreadInput(curThread, fgThread, TRUE);
-    }
-    if (targetThread != 0 && targetThread != curThread && targetThread != fgThread) {
-        ::AttachThreadInput(curThread, targetThread, TRUE);
-    }
-
-    ::SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-    ::BringWindowToTop(hwnd);
-    ::SetForegroundWindow(hwnd);
-
-    if (targetThread != 0 && targetThread != curThread && targetThread != fgThread) {
-        ::AttachThreadInput(curThread, targetThread, FALSE);
-    }
-    if (fgThread != 0 && fgThread != curThread) {
-        ::AttachThreadInput(curThread, fgThread, FALSE);
-    }
-
-    ::Sleep(80);
-}
-
 std::expected<ScreenCapture::CaptureResult, std::string>
 ScreenCapture::captureWindowForeground(HWND hwnd) {
-    bringWindowToForeground(hwnd);
+    winbot::bring_to_foreground(hwnd);
 
     RECT rect{};
     HRESULT hr = ::DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &rect, sizeof(rect));
@@ -302,10 +242,11 @@ ScreenCapture::captureWindowForeground(HWND hwnd) {
         return std::unexpected("Invalid window dimensions");
     }
 
-    HDC desktopDc = ::GetDC(nullptr);
-    auto result = captureHdc(desktopDc, rect.left, rect.top, w, h);
-    ::ReleaseDC(nullptr, desktopDc);
-    return result;
+    UniqueReleaseDc desktopDc(::GetDC(nullptr));
+    if (!desktopDc) {
+        return std::unexpected("Failed to get desktop DC");
+    }
+    return captureHdc(desktopDc.get(), rect.left, rect.top, w, h);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -340,51 +281,11 @@ ScreenCapture::captureWindow(HWND hwnd, bool bringToFront) {
 // Scored window lookup: exact > starts-with > contains (all case-insensitive).
 std::expected<ScreenCapture::CaptureResult, std::string>
 ScreenCapture::captureWindow(std::string_view titleSubstr, bool bringToFront) {
-    // Build lowercase wide query
-    std::wstring wq = utf8_to_wide(titleSubstr);
-    to_lower_inplace(wq);
-
-    struct Candidate { HWND hwnd; int score; };
-    Candidate best{ .hwnd = nullptr, .score = 0 };
-    auto ctx_sc = std::make_pair(&wq, &best);
-    ::EnumWindows([](HWND h, LPARAM lp) -> BOOL {
-        // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
-        auto* ctx = reinterpret_cast<std::pair<std::wstring*, Candidate*>*>(lp);
-        const std::wstring& q = *ctx->first;
-        Candidate& best       = *ctx->second;
-
-        if (::IsWindowVisible(h) == 0) {
-            return TRUE;
-        }
-        std::array<wchar_t, 512> buf{};
-        ::GetWindowTextW(h, buf.data(), static_cast<int>(buf.size()));
-        if (buf.front() == L'\0') {
-            return TRUE;
-        }
-
-        std::wstring titleLow(buf.data());
-        to_lower_inplace(titleLow);
-
-        int score = 0;
-        if (titleLow == q) {
-            score = 3;
-        } else if (titleLow.starts_with(q)) {
-            score = 2;
-        } else if (titleLow.contains(q)) {
-            score = 1;
-        }
-
-        if (score > best.score) {
-            best = { .hwnd = h, .score = score };
-        }
-        return TRUE;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    }, reinterpret_cast<LPARAM>(&ctx_sc));
-
-    if (best.hwnd == nullptr) {
+    HWND hwnd = winbot::find_best_window(titleSubstr);
+    if (hwnd == nullptr) {
         return std::unexpected(std::format("Window '{}' not found", titleSubstr));
     }
-    return captureWindow(best.hwnd, bringToFront);
+    return captureWindow(hwnd, bringToFront);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

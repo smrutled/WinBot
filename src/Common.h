@@ -11,13 +11,16 @@
 #include <cwctype>
 #include <algorithm>
 #include <chrono>
+#include <concepts>
 #include <expected>
 #include <format>
 #include <memory>
 #include <nlohmann/json.hpp> // IWYU pragma: export
 #include <print> // IWYU pragma: keep
+#include <stop_token>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <type_traits>
 #include <utility>
 
@@ -49,6 +52,57 @@ using UniqueHandle =
 
 inline UniqueHandle make_unique_handle(HANDLE h) { return UniqueHandle{h}; }
 
+// ── Generic function deleter for Win32/GDI handles ──────────────────────────
+template <auto Fn>
+struct FnDeleter {
+  void operator()(auto* p) const noexcept {
+    if (p != nullptr) {
+      Fn(p);
+    }
+  }
+};
+
+using UniqueHdc = std::unique_ptr<std::remove_pointer_t<HDC>, FnDeleter<&::DeleteDC>>;
+using UniqueHbitmap = std::unique_ptr<std::remove_pointer_t<HBITMAP>, FnDeleter<&::DeleteObject>>;
+
+struct ReleaseDcDeleter {
+  HWND hwnd{nullptr};
+  void operator()(HDC dc) const noexcept {
+    if (dc != nullptr) {
+      ::ReleaseDC(hwnd, dc);
+    }
+  }
+};
+using UniqueReleaseDc = std::unique_ptr<std::remove_pointer_t<HDC>, ReleaseDcDeleter>;
+
+class [[nodiscard]] GdiSelectScope {
+public:
+  GdiSelectScope(HDC dc, HGDIOBJ obj) noexcept
+      : m_dc(dc), m_old(::SelectObject(dc, obj)) {}
+  ~GdiSelectScope() noexcept {
+    if (m_dc != nullptr && m_old != nullptr) {
+      ::SelectObject(m_dc, m_old);
+    }
+  }
+  GdiSelectScope(const GdiSelectScope&) = delete;
+  GdiSelectScope& operator=(const GdiSelectScope&) = delete;
+  GdiSelectScope(GdiSelectScope&& o) noexcept
+      : m_dc(std::exchange(o.m_dc, nullptr)), m_old(std::exchange(o.m_old, nullptr)) {}
+  GdiSelectScope& operator=(GdiSelectScope&& o) noexcept {
+    if (this != &o) {
+      if (m_dc != nullptr && m_old != nullptr) {
+        ::SelectObject(m_dc, m_old);
+      }
+      m_dc = std::exchange(o.m_dc, nullptr);
+      m_old = std::exchange(o.m_old, nullptr);
+    }
+    return *this;
+  }
+private:
+  HDC m_dc{nullptr};
+  HGDIOBJ m_old{nullptr};
+};
+
 // ── COM pointer helper ─────────────────────────────────────────────────────
 template <typename T> struct ComDeleter {
   void operator()(T *p) const noexcept {
@@ -58,6 +112,29 @@ template <typename T> struct ComDeleter {
   }
 };
 template <typename T> using ComPtr = std::unique_ptr<T, ComDeleter<T>>;
+
+// ── Generic Polling Helper ──────────────────────────────────────────────────
+// Polls until attempt() evaluates to true (or has_value()), or timeout / stopToken.
+template <typename F>
+auto poll_until(std::chrono::milliseconds timeout,
+                std::chrono::milliseconds interval,
+                // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+                F&& attempt,
+                const std::stop_token& stopToken = {})
+    -> std::invoke_result_t<F>
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    for (;;) {
+        auto result = std::invoke(attempt);
+        if (static_cast<bool>(result)) {
+            return result;
+        }
+        if (stopToken.stop_requested() || std::chrono::steady_clock::now() >= deadline) {
+            return result;
+        }
+        std::this_thread::sleep_for(interval);
+    }
+}
 
 // ── String conversions ──────────────────────────────────────────────────────
 inline std::string wide_to_utf8(std::wstring_view wide) {

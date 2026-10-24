@@ -448,20 +448,17 @@ ToolResult BrowserAutomation::captureScreenshot() {
 }
 
 ToolResult BrowserAutomation::waitForSelector(std::string_view selector, int timeoutMs) {
-    auto start = std::chrono::steady_clock::now();
+    using namespace std::chrono_literals;
     std::string js = std::format(
         "!!document.querySelector({})", json(selector).dump());
 
-    while (true) {
+    bool found = poll_until(std::chrono::milliseconds(timeoutMs), 200ms, [&]() -> bool {
         auto result = evalJs(js);
-        if (result && *result == "true") {
-            return ok(std::format("Element '{}' found", selector));
-        }
+        return result && *result == "true";
+    });
 
-        auto elapsed = std::chrono::steady_clock::now() - start;
-        if (elapsed > std::chrono::milliseconds(timeoutMs)) {
-            return err(std::format("Timeout waiting for '{}'", selector));
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    if (found) {
+        return ok(std::format("Element '{}' found", selector));
     }
+    return err(std::format("Timeout waiting for '{}'", selector));
 }

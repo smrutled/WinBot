@@ -241,17 +241,15 @@ UIHandle UIHandle::select(std::string_view nameOrId, int timeoutMs, std::string_
 
     // If timeout requested, poll and refresh the tree from the live app
     if (timeoutMs > 0) {
-        auto deadline = std::chrono::steady_clock::now() +
-                        std::chrono::milliseconds(timeoutMs);
-        while (std::chrono::steady_clock::now() < deadline) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            
-            // Re-sync with live app
+        using namespace std::chrono_literals;
+        const UIElement* child = poll_until(std::chrono::milliseconds(timeoutMs), 100ms, [&]() -> const UIElement* {
             if (refresh()) {
-                if (const UIElement* child = m_element.findDescendant(nameOrId, controlType, excluded)) {
-                    return UIHandle{ *child, m_scanner };
-                }
+                return m_element.findDescendant(nameOrId, controlType, excluded);
             }
+            return nullptr;
+        });
+        if (child != nullptr) {
+            return UIHandle{ *child, m_scanner };
         }
     }
 

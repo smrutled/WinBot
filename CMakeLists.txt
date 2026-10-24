@@ -186,6 +186,7 @@ set(PLATFORM_SOURCES
     src/platform/uia/UIADebugger.cpp
     src/platform/screen/ScreenCapture.cpp
     src/platform/browser/BrowserAutomation.cpp
+    src/platform/win/WindowUtils.cpp
 )
 
 set(SERVICES_SOURCES

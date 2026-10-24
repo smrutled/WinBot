@@ -10,6 +10,7 @@
 #include <objbase.h>     // COM base (CoCreateInstance, etc.)
 #include <UIAutomation.h> // IUIAutomation, IUIAutomationElement, etc.
 #include "Common.h"
+#include "platform/win/WindowUtils.h"
 
 #include <algorithm>
 #include <array>
@@ -126,79 +127,8 @@ std::expected<UIElement, std::string> UIAutomationScanner::scanFocusedWindow() c
 }
 
 // ── findBestWindow ───────────────────────────────────────────────────────────
-// Scores all visible top-level windows against `query` and returns the
-// best-matching HWND. Match priority (case-insensitive):
-//   3 = exact match    e.g. query "Calculator" vs title "Calculator"
-//   2 = starts-with    e.g. query "Calc" vs title "Calculator"
-//   1 = contains       e.g. query "Calc" vs title "Windows Calculator"
-// If `query` starts with '/' it is treated as a regex (no scoring tiers).
 static HWND findBestWindow(std::string_view query) {
-    // ── Regex mode ────────────────────────────────────────────────────────────
-    if (query.size() >= 2 && query.front() == '/') {
-        // Strip leading slash. Trailing slash is optional.
-        std::string pat(query.substr(1));
-        if (!pat.empty() && pat.back() == '/') pat.pop_back();
-        try {
-            std::wregex re(utf8_to_wide(pat), std::regex_constants::icase);
-            HWND found = nullptr;
-            auto ctx_pair = std::make_pair(&re, &found);
-            ::EnumWindows([](HWND h, LPARAM lp) -> BOOL {
-                // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
-                auto* ctx = reinterpret_cast<std::pair<std::wregex*, HWND*>*>(lp);
-                if (!::IsWindowVisible(h)) return TRUE;
-                std::array<wchar_t, 512> buf{};
-                ::GetWindowTextW(h, buf.data(), static_cast<int>(buf.size()));
-                if (std::regex_search(std::wstring(buf.data()), *ctx->first)) {
-                    *ctx->second = h;
-                    return FALSE;
-                }
-                return TRUE;
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-            }, reinterpret_cast<LPARAM>(&ctx_pair));
-            return found;
-        } catch (...) {
-            return nullptr; // Bad regex
-        }
-    }
-
-    // ── Scored substring mode ─────────────────────────────────────────────────
-    std::wstring wquery = utf8_to_wide(query);
-    // Lowercase the query once
-    std::wstring wqLow = wquery;
-    to_lower_inplace(wqLow);
-
-    struct Candidate { HWND hwnd; int score; };
-    Candidate best{ nullptr, 0 };
-
-    auto ctx_scored = std::make_pair(&wqLow, &best);
-    ::EnumWindows([](HWND h, LPARAM lp) -> BOOL {
-        // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
-        auto* ctx = reinterpret_cast<std::pair<std::wstring*, Candidate*>*>(lp);
-        const std::wstring& q = *ctx->first;
-        Candidate& best       = *ctx->second;
-
-        if (!::IsWindowVisible(h)) return TRUE;
-        std::array<wchar_t, 512> buf{};
-        ::GetWindowTextW(h, buf.data(), static_cast<int>(buf.size()));
-        if (buf.front() == L'\0') return TRUE;
-
-        std::wstring title(buf.data());
-        std::wstring titleLow = title;
-        to_lower_inplace(titleLow);
-
-        int score = 0;
-        if (titleLow == q)                     score = 3; // exact
-        else if (titleLow.starts_with(q))      score = 2; // prefix
-        else if (titleLow.contains(q))         score = 1; // substring
-
-        if (score > best.score) {
-            best = { h, score };
-        }
-        return TRUE; // Keep scanning — we want the BEST, not just the first
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    }, reinterpret_cast<LPARAM>(&ctx_scored));
-
-    return best.hwnd;
+    return winbot::find_best_window(query);
 }
 
 std::expected<UIElement, std::string> UIAutomationScanner::scanWindow(
@@ -854,15 +784,18 @@ std::expected<UIHandle, std::string> UIAutomationScanner::select(
     if (timeoutMs <= 0)
         return std::unexpected(std::format("select('{}') — not found in focused window or desktop", nameOrId));
 
-    // Poll until timeout
-    auto deadline = std::chrono::steady_clock::now() +
-                    std::chrono::milliseconds(timeoutMs);
-    while (std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    using namespace std::chrono_literals;
+    auto match = poll_until(std::chrono::milliseconds(timeoutMs), 100ms, [&]() -> std::optional<UIHandle> {
         if (auto tree = scanOnce(); tree) {
-            if (auto el = tryFind(*tree))
+            if (auto el = tryFind(*tree)) {
                 return UIHandle{ std::move(*el), this };
+            }
         }
+        return std::nullopt;
+    });
+
+    if (match.has_value()) {
+        return std::move(*match);
     }
     return std::unexpected(
         std::format("select('{}') — timed out after {} ms", nameOrId, timeoutMs));
@@ -872,19 +805,20 @@ std::expected<UIHandle, std::string> UIAutomationScanner::select(
 std::expected<UIHandle, std::string> UIAutomationScanner::waitForWindow(
     std::string_view title, int timeoutMs) const
 {
-    auto deadline = std::chrono::steady_clock::now() +
-                    std::chrono::milliseconds(timeoutMs);
+    using namespace std::chrono_literals;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
 
-    while (true) {
+    auto match = poll_until(std::chrono::milliseconds(timeoutMs), 200ms, [&]() -> std::optional<UIHandle> {
         auto tree = scanWindow(title);
-        // Only return if we found the window AND it has a name (or we're out of time)
-        bool outOfTime = std::chrono::steady_clock::now() > (deadline - std::chrono::milliseconds(500));
+        bool outOfTime = std::chrono::steady_clock::now() > (deadline - 500ms);
         if (tree && (tree->controlType == "Window" || outOfTime) && (!tree->name.empty() || outOfTime)) {
             return UIHandle{ std::move(*tree), this };
         }
-        
-        if (std::chrono::steady_clock::now() >= deadline) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        return std::nullopt;
+    });
+
+    if (match.has_value()) {
+        return std::move(*match);
     }
     
     return std::unexpected(

@@ -1,4 +1,6 @@
 #include "tools/WindowTools.h"
+#include "core/ToolRegistry.h"
+#include "platform/win/WindowUtils.h"
 #include <array>
 #include <charconv>
 #include <tlhelp32.h>
@@ -11,119 +13,37 @@ namespace tools {
 
 ToolResult getWindowList() {
     std::string result;
-
-    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr) - Win32 EnumWindows LPARAM context passing
-    ::EnumWindows([](HWND hwnd, LPARAM lp) -> BOOL {
-        auto* out = reinterpret_cast<std::string*>(lp);
-        if (!::IsWindowVisible(hwnd)) return TRUE;
+    winbot::enum_windows([&](HWND hwnd) {
+        if (::IsWindowVisible(hwnd) == 0) return true;
         std::array<wchar_t, 256> title{};
-        ::GetWindowTextW(hwnd, title.data(), static_cast<int>(title.size()));
-        if (title.front() == L'\0') return TRUE;
+        int len = ::GetWindowTextW(hwnd, title.data(), static_cast<int>(title.size()));
+        if (len <= 0) return true;
         DWORD pid = 0;
         ::GetWindowThreadProcessId(hwnd, &pid);
-        *out += std::format("[HWND:0x{:08X} PID:{}] {}\n",
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+        result += std::format("[HWND:0x{:08X} PID:{}] {}\n",
             reinterpret_cast<uintptr_t>(hwnd), pid, wide_to_utf8(title.data()));
-        return TRUE;
-    }, reinterpret_cast<LPARAM>(&result));
-    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
-
+        // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+        return true;
+    });
     return ok(result.empty() ? "(no visible windows)" : result);
 }
 
 void bringWindowToForeground(HWND hwnd) {
-    if (!hwnd || !::IsWindow(hwnd)) return;
-
-    if (::IsIconic(hwnd)) {
-        ::ShowWindow(hwnd, SW_RESTORE);
-    } else if (!::IsWindowVisible(hwnd)) {
-        ::ShowWindow(hwnd, SW_SHOW);
-    }
-
-    HWND fgWnd = ::GetForegroundWindow();
-    DWORD fgThread = fgWnd ? ::GetWindowThreadProcessId(fgWnd, nullptr) : 0;
-    DWORD targetThread = ::GetWindowThreadProcessId(hwnd, nullptr);
-    DWORD curThread = ::GetCurrentThreadId();
-
-    if (fgThread != 0 && fgThread != curThread) {
-        ::AttachThreadInput(curThread, fgThread, TRUE);
-    }
-    if (targetThread != 0 && targetThread != curThread && targetThread != fgThread) {
-        ::AttachThreadInput(curThread, targetThread, TRUE);
-    }
-
-    ::SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-    ::BringWindowToTop(hwnd);
-    ::SetForegroundWindow(hwnd);
-
-    if (targetThread != 0 && targetThread != curThread && targetThread != fgThread) {
-        ::AttachThreadInput(curThread, targetThread, FALSE);
-    }
-    if (fgThread != 0 && fgThread != curThread) {
-        ::AttachThreadInput(curThread, fgThread, FALSE);
-    }
-
-    ::Sleep(80);
+    winbot::bring_to_foreground(hwnd);
 }
 
 ToolResult focusWindow(std::string_view title) {
-    std::wstring wq = utf8_to_wide(title);
-    to_lower_inplace(wq);
-
-    struct Candidate { HWND hwnd; int score; };
-    Candidate best{ nullptr, 0 };
-    auto ctx_f = std::make_pair(&wq, &best);
-    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr) - Win32 EnumWindows LPARAM context passing
-    ::EnumWindows([](HWND h, LPARAM lp) -> BOOL {
-        auto* ctx = reinterpret_cast<std::pair<std::wstring*, Candidate*>*>(lp);
-        const std::wstring& q = *ctx->first;
-        Candidate& best       = *ctx->second;
-        if (!::IsWindowVisible(h)) return TRUE;
-        std::array<wchar_t, 512> buf{};
-        ::GetWindowTextW(h, buf.data(), static_cast<int>(buf.size()));
-        if (buf.front() == L'\0') return TRUE;
-        std::wstring t(buf.data()); to_lower_inplace(t);
-        int score = 0;
-        if      (t == q)            score = 3;
-        else if (t.starts_with(q)) score = 2;
-        else if (t.contains(q))    score = 1;
-        if (score > best.score) best = { h, score };
-        return TRUE;
-    }, reinterpret_cast<LPARAM>(&ctx_f));
-    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
-
-    if (!best.hwnd) return err(std::format("Window '{}' not found", title));
-    bringWindowToForeground(best.hwnd);
+    HWND hwnd = winbot::find_best_window(title);
+    if (hwnd == nullptr) return err(std::format("Window '{}' not found", title));
+    winbot::bring_to_foreground(hwnd);
     return ok(std::format("Focused window: {}", title));
 }
 
 ToolResult closeWindow(std::string_view title) {
-    std::wstring wq = utf8_to_wide(title);
-    to_lower_inplace(wq);
-
-    struct Candidate { HWND hwnd; int score; };
-    Candidate best{ nullptr, 0 };
-    auto ctx_c = std::make_pair(&wq, &best);
-    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr) - Win32 EnumWindows LPARAM context passing
-    ::EnumWindows([](HWND h, LPARAM lp) -> BOOL {
-        auto* ctx = reinterpret_cast<std::pair<std::wstring*, Candidate*>*>(lp);
-        const std::wstring& q = *ctx->first;
-        Candidate& best       = *ctx->second;
-        if (!::IsWindowVisible(h)) return TRUE;
-        std::array<wchar_t, 512> buf{};
-        ::GetWindowTextW(h, buf.data(), static_cast<int>(buf.size()));
-        if (buf.front() == L'\0') return TRUE;
-        std::wstring t(buf.data()); to_lower_inplace(t);
-        int score = 0;
-        if      (t == q)            score = 3;
-        else if (t.starts_with(q)) score = 2;
-        else if (t.contains(q))    score = 1;
-        if (score > best.score) best = { h, score };
-        return TRUE;
-    }, reinterpret_cast<LPARAM>(&ctx_c));
-    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
-
-    if (!best.hwnd) return err(std::format("Window '{}' not found", title));
-    ::PostMessageW(best.hwnd, WM_CLOSE, 0, 0);
+    HWND hwnd = winbot::find_best_window(title);
+    if (hwnd == nullptr) return err(std::format("Window '{}' not found", title));
+    ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
     return ok(std::format("Sent WM_CLOSE to: {}", title));
 }
 
